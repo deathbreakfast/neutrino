@@ -475,10 +475,10 @@ impl SecretStore for ValenceSealedStore {
         )
         .await?;
 
-        delete_secret_permission_bundle(self.valence.as_ref(), sid).await?;
-        NeutrinoSecret::delete(sid, self.valence.as_ref())
-            .await
-            .map_err(|e| NeutrinoError::service("valence", e))?;
+        // Physical row removal runs in `vault::finalize_secret_deletion` via the
+        // deletion DAG (backend `delete_record`, no ORM privacy re-check). Calling
+        // `NeutrinoSecret::delete` here would cascade through version rows and fail
+        // for session Valence when Gauge Delete grants are required per version.
         Ok(())
     }
 

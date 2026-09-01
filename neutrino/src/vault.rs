@@ -261,7 +261,8 @@ pub async fn delete_vault_secret(
     )
     .await?;
     store.delete(&SecretId(sid.clone())).await?;
-    finalize_secret_deletion(store.valence.as_ref(), &sid).await
+    finalize_secret_deletion(store.valence.as_ref(), &sid).await?;
+    crate::vault_gauge::delete_secret_permission_bundle(store.valence.as_ref(), &sid).await
 }
 
 const SECRET_TABLE: &str = "neutrino_secret";
