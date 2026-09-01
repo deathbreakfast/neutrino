@@ -1,0 +1,23 @@
+[package]
+name = "vault-host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Teaching host: bootstrap seed + role gate + rotate/reveal + secrets inventory contract"
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = { workspace = true, default-features = false, features = ["tokio", "http1", "json"] }
+base64 = { workspace = true }
+chrono = { workspace = true }
+gauge = { workspace = true, default-features = false, features = ["ssr"] }
+http-body-util = "0.1"
+lepton = { workspace = true, features = ["ssr"] }
+neutrino = { path = "../../neutrino", features = ["ssr"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+valence = { workspace = true }

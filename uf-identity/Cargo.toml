@@ -1,0 +1,10 @@
+[package]
+name = "uf-identity"
+version = "0.2.0"
+edition = "2021"
+description = "Abstract session identity contract for Unified Field host layers (no Valence schemas)"
+license = "MIT"
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

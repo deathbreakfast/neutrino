@@ -1,0 +1,118 @@
+# PR / merge gate aligned with docs/VERIFICATION.md (neutrino domain + vault-host).
+# Standalone checkout — UF deps resolve via git branch = main on unified-field-dev.
+# neutrino-app / Orbital UI compile stays in neutrino-uf-app.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 1
+  CARGO_TARGET_DIR: target-neutrino
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (pin)
+        with:
+          toolchain: nightly-2026-08-07
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt -p neutrino -p vault-host -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (pin)
+        with:
+          toolchain: nightly-2026-08-07
+          components: clippy
+      - name: cargo clippy (neutrino lib + contract suites)
+        run: >
+          cargo clippy -p neutrino --features ssr
+          --lib
+          --test vault_crud_contract
+          --test sealed_store_idempotent
+          --test vault_authz_contract
+          --test vault_security_remediation
+          -- -D warnings
+      - name: cargo clippy (vault-host)
+        run: cargo clippy -p vault-host --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (pin)
+        with:
+          toolchain: nightly-2026-08-07
+      - name: cargo test (sibling-source UI contracts)
+        run: cargo test -p neutrino --test workspace_members --test product_surface
+      - name: cargo test (vault domain contracts)
+        run: >
+          cargo test -p neutrino --features ssr
+          --lib
+          --test vault_crud_contract
+          --test sealed_store_idempotent
+          --test vault_authz_contract
+          --test vault_security_remediation
+      - name: cargo test (Gauge RBAC contracts)
+        run: >
+          cargo test -p neutrino --features rbac-tests
+          --test vault_gauge_authz
+          --test vault_server_rbac
+          --test security_contract
+          --test access_matrix_contract
+      - name: cargo test (neutrino-spectra-telemetry)
+        run: cargo test -p neutrino-spectra-telemetry
+      - name: cargo check + run (vault-host)
+        run: |
+          cargo check -p vault-host
+          cargo run -p vault-host
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (pin)
+        with:
+          toolchain: nightly-2026-08-07
+      - name: cargo doc (neutrino, deny broken intra-doc links)
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken-intra-doc-links"
+        run: cargo doc -p neutrino --features ssr --no-deps
+
+  leptos-lints:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (pin)
+        with:
+          toolchain: nightly-2026-08-07
+      - name: Install cargo-dylint
+        run: |
+          cargo install cargo-dylint --locked --version 6.0.1 --force
+          cargo install dylint-link --locked --version 6.0.1 --force
+      - name: Install leptos-lints nightly toolchain
+        run: rustup toolchain install nightly-2025-05-14 --component rustc-dev,llvm-tools-preview
+      - name: cargo dylint (leptos-lints)
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+          RUSTFLAGS: "-D warnings -Zcrate-attr=feature(stdarch_x86_avx512)"
+        run: cargo dylint --all -p neutrino --lib --no-deps

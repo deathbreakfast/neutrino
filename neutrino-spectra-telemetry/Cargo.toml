@@ -1,0 +1,28 @@
+[package]
+name = "neutrino-spectra-telemetry"
+description = "Neutrino Spectra telemetry schemas, Photon topics, and event field helpers"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+spectra = { workspace = true }
+spectra-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+
+[[example]]
+name = "secret_access_emit_smoke"

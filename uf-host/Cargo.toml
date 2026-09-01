@@ -1,0 +1,29 @@
+[package]
+name = "uf-host"
+version = "0.2.0"
+edition = "2021"
+description = "Unified Field host request context — DB, Valence router, session snapshot (no concrete identity models)"
+license = "MIT"
+
+[dependencies]
+uf-identity = { path = "../uf-identity" }
+valence = { workspace = true }
+leptos = { workspace = true, default-features = false }
+leptos_axum = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+surrealdb = { workspace = true, default-features = false, features = ["kv-mem"], optional = true }
+tokio = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+
+[features]
+default = []
+ssr = [
+    "leptos/ssr",
+    "dep:leptos_axum",
+    "dep:axum",
+    "dep:surrealdb",
+    "dep:tokio",
+    "dep:serde_json",
+    "dep:anyhow"]
