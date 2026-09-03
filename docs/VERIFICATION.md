@@ -60,6 +60,15 @@ compiling the UI graph:
 cargo test -p neutrino --test workspace_members --test product_surface
 ```
 
+TM-12 step-up inventory + domain reveal/break-glass (focused):
+
+```bash
+cargo test -p neutrino --test product_surface step_up -- --nocapture
+cargo test -p neutrino --test product_surface list_vault_secrets_must_not -- --nocapture
+cargo test -p neutrino --features ssr --test vault_authz_contract owner_reveal -- --nocapture
+cargo test -p neutrino --features ssr --test vault_authz_contract break_glass -- --nocapture
+```
+
 Backend contracts (preferred path; no UI graph):
 
 ```bash

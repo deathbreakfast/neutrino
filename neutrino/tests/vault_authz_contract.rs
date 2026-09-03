@@ -98,6 +98,75 @@ async fn reveal_denied_for_non_owner_without_scope_prefix_sad() {
 }
 
 #[tokio::test]
+async fn owner_reveal_happy_path_outsider_denied_sad() {
+    let v = test_valence().await;
+    let store = store_from_valence_for_request(v, "user:alice");
+    let created = create_vault_secret(
+        &store,
+        "owner_reveal_tm12".into(),
+        "/team-a/owner".into(),
+        "password".into(),
+        "owner-reveal-pt".into(),
+        "user:alice".into(),
+    )
+    .await
+    .expect("create");
+
+    let revealed = reveal_vault_secret(
+        &store,
+        created.id.clone(),
+        &VaultAccessContext::owner_only("user:alice"),
+    )
+    .await
+    .expect("owner reveal");
+    let got = B64.decode(revealed.plaintext_b64.as_bytes()).expect("b64");
+    assert_eq!(got.as_slice(), b"owner-reveal-pt");
+
+    let err = reveal_vault_secret(
+        &store,
+        created.id.clone(),
+        &VaultAccessContext::owner_only("user:bob"),
+    )
+    .await
+    .expect_err("outsider must not reveal");
+    assert!(
+        matches!(
+            err,
+            NeutrinoError::AccessDenied {
+                operation: "access this secret"
+            }
+        ),
+        "got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn reveal_via_break_glass_super_user_happy_path() {
+    let v = test_valence().await;
+    let store = store_from_valence_for_request(v, "user:alice");
+    let created = create_vault_secret(
+        &store,
+        "break_glass_tm12".into(),
+        "/team-a/break".into(),
+        "password".into(),
+        "break-glass-pt".into(),
+        "user:alice".into(),
+    )
+    .await
+    .expect("create");
+
+    let revealed = reveal_vault_secret(
+        &store,
+        created.id,
+        &VaultAccessContext::break_glass("user:ops"),
+    )
+    .await
+    .expect("Super User break-glass reveal");
+    let got = B64.decode(revealed.plaintext_b64.as_bytes()).expect("b64");
+    assert_eq!(got.as_slice(), b"break-glass-pt");
+}
+
+#[tokio::test]
 async fn reveal_allowed_with_matching_scope_prefix_happy_path() {
     let v = test_valence().await;
     let store = store_from_valence_for_request(v, "user:alice");
