@@ -45,9 +45,21 @@ Ordinary `SecretsReveal` holders without owner/grant/prefix match are **denied**
 owner/grant/prefix bridge before decrypt/rotate — `CreateNeutrinoSecrets` alone
 does not authorize overwriting another principal's row.
 
-Vault `#[server]` wrappers use `Higgs::unsafe_system_valence` for Neutrino ORM
-(`SYSTEM_ONLY` schemas) after the Gauge permission gate, with request-actor audit
-via `store_from_valence_for_request`.
+Vault product server functions keep the **session Valence** after the Gauge
+permission gate and drive ORM access under that actor (no mid-request
+`unsafe_system_valence`). Request-actor audit labels come from
+`store_from_valence_for_request`. Product-surface tests forbid System elevation
+in the live vault wrappers.
+
+### Action verification (Tier A)
+
+`reveal_vault_secret`, `rotate_vault_secret`, `delete_vault_secret`, and
+`create_vault_secret` require a recent TOTP step-up (session sudo window) via
+`#[uf_product_macros::server(..., step_up)]` in addition to Gauge coarse
+permissions and per-secret grants. Reveal always takes an explicit `totp_code`
+and runs `verify_fresh_totp` (`step_up = "fresh"`), so a valid window alone is
+not enough — including Super User break-glass. `list_vault_secrets` and
+`neutrino_vault_ping` stay window-free.
 
 ## Master key
 
