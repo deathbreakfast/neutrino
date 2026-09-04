@@ -82,11 +82,12 @@ audit append fails, the API returns an error (fail closed). Read paths (`get`,
 `reveal`) log the failure and continue so availability is not blocked by audit
 storage outages.
 
-**Denial audit elevate (allowlisted):** `append_denial_audit_event` rebinds to
-System (`operation = neutrino_audit_denial`) so a denied session actor can still
-append a hash-chained denial row when Valence would otherwise block the write.
-Confined to that append path; vault product wrappers keep session Valence and
-must not copy this elevate for reveal/rotate/delete/create.
+**Denial audit elevate (SM-25 Fixed, allowlisted):** Denied actors cannot Update
+the parent secret, so `append_denial_audit_event` rebinds to System only for that
+audit write (`operation = neutrino_audit_denial`). Already-System callers are not
+rebound. Confined to the denial append; vault product wrappers keep session
+Valence and must not copy this elevate for reveal/rotate/delete/create or
+step-up.
 
 ## Client reveal transport
 
