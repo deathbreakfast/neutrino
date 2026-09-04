@@ -7,8 +7,9 @@
 use gauge::actor_can_raw::actor_can_raw;
 use gauge::generated::PermissionDomain;
 use gauge::resource_permissions::{
-    ensure_resource_permission_bundle, permission_name, seed_resource_kind_catalog, ResourceAction,
-    ResourceKind, ResourcePermissionError, ResourcePermissionSpec, CREATE_NEUTRINO_SECRETS,
+    ensure_resource_permission_bundle, permission_name, seed_resource_kind_catalog,
+    KindDefaultGroups, ResourceAction, ResourceKindDescriptor, ResourcePermissionError,
+    ResourcePermissionPolicy, ResourcePermissionSpec, StaticPermissionGate, UmbrellaPolicy,
 };
 use valence::{Actor, Model, Valence};
 
@@ -16,7 +17,51 @@ use crate::canonical_secret_id::canonical_secret_id;
 use crate::error::{NeutrinoError, NeutrinoResult};
 use crate::sealed_store::ValenceSealedStore;
 
-pub use gauge::resource_permissions::NEUTRINO_SECRET_RESOURCE;
+/// The Neutrino secret resource kind, as Gauge sees it.
+///
+/// Neutrino owns these strings. `prefix` and the group ids are primary keys in deployed
+/// `permission`, `permission_domain`, and `permission_group` rows, so changing one is a
+/// data migration.
+///
+/// Two things set secrets apart from other kinds:
+///
+/// - `actions` includes [`ResourceAction::Reveal`], the permission that gates plaintext.
+/// - `umbrella` is [`UmbrellaPolicy::None`], so sealing a secret grants nothing to
+///   `neutrino.secret.viewers` or `.operators`. Reading a secret needs owners-group
+///   membership or an explicit per-secret grant. `editors` deliberately points at the
+///   operators group so there is no standing edit-only umbrella to grant against.
+pub const NEUTRINO_SECRET: ResourceKindDescriptor = ResourceKindDescriptor {
+    prefix: "neutrino_secret",
+    display_label: "Neutrino secret",
+    actions: ResourceAction::WITH_REVEAL,
+    umbrella: UmbrellaPolicy::None,
+    groups: KindDefaultGroups {
+        creators: "neutrino.secret.creators",
+        viewers: "neutrino.secret.viewers",
+        editors: "neutrino.secret.operators",
+        operators: "neutrino.secret.operators",
+    },
+    create_permission: "CreateNeutrinoSecrets",
+};
+
+/// Coarse create gate for secrets.
+///
+/// `rule_name` keeps the `gauge::` namespace it had when Gauge owned this const, since
+/// Valence privacy rule names are matched by string. Neutrino's own schemas wire
+/// [`crate::privacy_policies::CREATE_NEUTRINO_SECRETS_GATE`] instead, which checks the
+/// same permission name through raw Gauge walks.
+pub const CREATE_NEUTRINO_SECRETS: StaticPermissionGate = StaticPermissionGate {
+    rule_name: "gauge::CREATE_NEUTRINO_SECRETS",
+    permission_name: NEUTRINO_SECRET.create_permission,
+};
+
+/// Per-secret read / update / delete gate for Valence rows.
+pub const NEUTRINO_SECRET_RESOURCE: ResourcePermissionPolicy<ResourceKindDescriptor> =
+    ResourcePermissionPolicy {
+        rule_name: "gauge::NEUTRINO_SECRET_RESOURCE",
+        kind: NEUTRINO_SECRET,
+        id_field: "id",
+    };
 
 const NEUTRINO_CATALOG_DOMAIN_ID: &str = "rp_catalog_neutrino_secret";
 
@@ -26,7 +71,7 @@ const NEUTRINO_CATALOG_DOMAIN_ID: &str = "rp_catalog_neutrino_secret";
 pub async fn create_initial_neutrino_groups(v: &Valence) -> Result<(), ResourcePermissionError> {
     seed_resource_kind_catalog(
         v,
-        ResourceKind::NeutrinoSecret,
+        NEUTRINO_SECRET,
         NEUTRINO_CATALOG_DOMAIN_ID,
         "Neutrino secret create",
         "rp_perm_create_neutrino_secrets",
@@ -151,7 +196,7 @@ pub async fn actor_can_secret(
         return Ok(true);
     }
     let sid = canonical_secret_id(secret_id)?;
-    let name = permission_name(ResourceKind::NeutrinoSecret, sid.as_str(), action);
+    let name = permission_name(NEUTRINO_SECRET, sid.as_str(), action);
     actor_can_raw(auth_v, &name)
         .await
         .map_err(|e| NeutrinoError::service("actor_can_secret", e))
@@ -242,10 +287,10 @@ pub async fn ensure_secret_permission_bundle(
     ensure_resource_permission_bundle(
         orm_v,
         ResourcePermissionSpec {
-            kind: ResourceKind::NeutrinoSecret,
+            kind: NEUTRINO_SECRET,
             resource_id: sid,
             display_name: display_name.to_string(),
-            actions: ResourceKind::NeutrinoSecret.default_actions(),
+            actions: NEUTRINO_SECRET.default_actions(),
             maintainer_actor: maintainer_actor.to_string(),
         },
     )
@@ -262,7 +307,7 @@ pub async fn delete_secret_permission_bundle(
     let sid = canonical_secret_id(secret_id)?;
     gauge::resource_permissions::delete_resource_permission_bundle(
         orm_v,
-        ResourceKind::NeutrinoSecret,
+        NEUTRINO_SECRET,
         sid.as_str(),
     )
     .await
@@ -273,8 +318,67 @@ pub async fn delete_secret_permission_bundle(
 mod tests {
     #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-    use super::{auth_valence_for_label, maintainer_is_gauge_user, user_id_from_actor_label};
+    use super::{
+        auth_valence_for_label, maintainer_is_gauge_user, user_id_from_actor_label,
+        CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET, NEUTRINO_SECRET_RESOURCE,
+    };
+    use gauge::resource_permissions::{
+        domain_id, owners_group_id, permission_name, permission_record_id, ResourceAction,
+        ResourceKind, UmbrellaPolicy,
+    };
     use valence::Actor;
+
+    /// Moving the descriptor out of Gauge must not move a single deployed primary key.
+    #[test]
+    fn descriptor_keeps_the_wire_names_gauge_shipped() {
+        let shipped = ResourceKind::NeutrinoSecret.descriptor();
+        assert_eq!(NEUTRINO_SECRET, shipped);
+        for action in ResourceAction::WITH_REVEAL {
+            assert_eq!(
+                permission_name(NEUTRINO_SECRET, "res-42", *action),
+                permission_name(shipped, "res-42", *action)
+            );
+            assert_eq!(
+                permission_record_id(NEUTRINO_SECRET, "res-42", *action),
+                permission_record_id(shipped, "res-42", *action)
+            );
+        }
+        assert_eq!(
+            domain_id(NEUTRINO_SECRET, "res-42"),
+            domain_id(shipped, "res-42")
+        );
+        assert_eq!(
+            owners_group_id(NEUTRINO_SECRET, "res-42"),
+            owners_group_id(shipped, "res-42")
+        );
+    }
+
+    #[test]
+    fn secrets_grant_no_kind_wide_umbrellas_and_gate_reveal() {
+        assert_eq!(NEUTRINO_SECRET.umbrella, UmbrellaPolicy::None);
+        assert!(NEUTRINO_SECRET.actions.contains(&ResourceAction::Reveal));
+        // No standing edit-only umbrella to grant against.
+        assert_eq!(
+            NEUTRINO_SECRET.groups.editors,
+            NEUTRINO_SECRET.groups.operators
+        );
+    }
+
+    #[test]
+    fn privacy_rule_names_are_unchanged() {
+        assert_eq!(
+            CREATE_NEUTRINO_SECRETS.rule_name,
+            "gauge::CREATE_NEUTRINO_SECRETS"
+        );
+        assert_eq!(
+            CREATE_NEUTRINO_SECRETS.permission_name,
+            "CreateNeutrinoSecrets"
+        );
+        assert_eq!(
+            NEUTRINO_SECRET_RESOURCE.rule_name,
+            "gauge::NEUTRINO_SECRET_RESOURCE"
+        );
+    }
 
     #[test]
     fn user_id_from_actor_label_strips_user_prefix_happy() {

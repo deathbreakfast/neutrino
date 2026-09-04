@@ -447,8 +447,6 @@ pub use bootstrap_seeder::{
 };
 pub use bootstrap_trust::{classify_env_key, SecretLifecycleClass};
 pub use error::{NeutrinoError, NeutrinoResult};
-#[cfg(feature = "ssr")]
-pub use gauge::resource_permissions::CREATE_NEUTRINO_SECRETS;
 pub use key_source::{master_key_from_env, MasterKeyError};
 #[cfg(feature = "ssr")]
 pub use sealed_store::{list_secrets, ListedSecret, ValenceSealedStore};
@@ -467,5 +465,6 @@ pub use vault_authz::{can_access_secret, ensure_can_access_secret};
 #[cfg(feature = "ssr")]
 pub use vault_gauge::{
     actor_can_secret, assert_neutrino_catalog_seeded, create_initial_neutrino_groups,
-    ensure_secret_permission_bundle, NEUTRINO_SECRET_RESOURCE,
+    ensure_secret_permission_bundle, CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET,
+    NEUTRINO_SECRET_RESOURCE,
 };

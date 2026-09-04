@@ -4,10 +4,10 @@
 //! checks do not re-enter typed ORM privacy or elevate to System.
 
 use async_trait::async_trait;
-use gauge::resource_permissions::{
-    permission_name, ResourceAction, ResourceKind, CREATE_NEUTRINO_SECRETS,
-};
+use gauge::resource_permissions::{permission_name, ResourceAction, ResourceKindDescriptor};
 use std::any::Any;
+
+use crate::vault_gauge::{CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET};
 use valence::{
     Actor, ActorContext, Error, PolicyEvaluator, PrivacyOperation, PrivacyRule, Result, Valence,
 };
@@ -23,7 +23,7 @@ pub const CREATE_NEUTRINO_SECRETS_GATE: StaticPermissionGateRaw = StaticPermissi
 /// Per-secret metadata mutate/delete gate (`View`/`Edit`/`Delete` on `id`).
 pub const NEUTRINO_SECRET_ENTITY: ResourcePermissionPolicyRaw = ResourcePermissionPolicyRaw {
     rule_name: "neutrino::NEUTRINO_SECRET_ENTITY",
-    kind: ResourceKind::NeutrinoSecret,
+    kind: NEUTRINO_SECRET,
     id_field: "id",
 };
 
@@ -31,7 +31,7 @@ pub const NEUTRINO_SECRET_ENTITY: ResourcePermissionPolicyRaw = ResourcePermissi
 pub const NEUTRINO_SECRET_VERSION_ENTITY: SecretVersionPermissionPolicyRaw =
     SecretVersionPermissionPolicyRaw {
         rule_name: "neutrino::NEUTRINO_SECRET_VERSION_ENTITY",
-        kind: ResourceKind::NeutrinoSecret,
+        kind: NEUTRINO_SECRET,
         id_field: "secret_id",
     };
 
@@ -130,7 +130,7 @@ pub struct ResourcePermissionPolicyRaw {
     /// Valence privacy rule name.
     pub rule_name: &'static str,
     /// Resource kind for permission name construction.
-    pub kind: ResourceKind,
+    pub kind: ResourceKindDescriptor,
     /// JSON field holding the resource id.
     pub id_field: &'static str,
 }
@@ -188,7 +188,7 @@ pub struct SecretVersionPermissionPolicyRaw {
     /// Valence privacy rule name.
     pub rule_name: &'static str,
     /// Parent secret kind.
-    pub kind: ResourceKind,
+    pub kind: ResourceKindDescriptor,
     /// JSON field holding the parent secret id (`secret_id`).
     pub id_field: &'static str,
 }
