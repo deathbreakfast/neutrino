@@ -292,8 +292,9 @@
 //!
 //! ## Delete secret
 //!
-//! Delete removes the secret row, version ciphertext (Valence cascade), and the Gauge
-//! per-secret bundle via `gauge::delete_resource_permission_bundle`. Umbrella groups, shared
+//! Secret deletion provides a permanent retirement path for a stored credential: it drops
+//! the secret row, every version ciphertext (Valence cascade), and the Gauge per-secret
+//! bundle via `gauge::delete_resource_permission_bundle`. Umbrella groups, shared
 //! principals, `CreateNeutrinoSecrets`, and audit rows remain.
 //!
 //! **Prerequisites:** authorized Delete (or System) actor; existing secret id.
