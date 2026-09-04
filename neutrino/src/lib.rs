@@ -414,6 +414,8 @@ pub mod instrumentation;
 mod privacy_policies;
 #[cfg(feature = "ssr")]
 mod schemas;
+#[cfg(feature = "chronon")]
+pub mod scripts;
 #[cfg(feature = "ssr")]
 pub mod sealed_store;
 #[cfg(feature = "ssr")]

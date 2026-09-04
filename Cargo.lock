@@ -1033,7 +1033,7 @@ dependencies = [
 [[package]]
 name = "gauge"
 version = "0.1.0"
-source = "git+https://github.com/unified-field-dev/gauge?branch=main#5c0e9dca0bd948947cc2744282c70635f0daeca2"
+source = "git+https://github.com/deathbreakfast/gauge?branch=main#0a5e4aaf78527f90d6669c2c102e4c60d8cb089c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2041,6 +2041,11 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "chrono",
+ "chronon-coordinator",
+ "chronon-coordinator-macros",
+ "chronon-core",
+ "chronon-executor",
+ "chronon-valence-identity",
  "gauge",
  "lepton",
  "log",
@@ -4615,6 +4620,11 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "gauge"
+version = "0.1.0"
+source = "git+https://github.com/unified-field-dev/gauge?branch=main#5c0e9dca0bd948947cc2744282c70635f0daeca2"
 
 [[patch.unused]]
 name = "orbital-base-components"

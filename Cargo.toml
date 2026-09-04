@@ -174,3 +174,7 @@ orbital-tree = { git = "https://github.com/unified-field-dev/orbital", branch = 
 orbital-scheduler = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-motion = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-history = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
+
+# Until unified-field-dev/gauge#4 lands revoke_umbrella_grants + descriptors.
+[patch."https://github.com/unified-field-dev/gauge"]
+gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main" }
