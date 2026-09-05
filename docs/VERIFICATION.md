@@ -66,7 +66,7 @@ TM-12 step-up inventory + domain reveal/break-glass (focused):
 cargo test -p neutrino --test product_surface step_up -- --nocapture
 cargo test -p neutrino --test product_surface list_vault_secrets_must_not -- --nocapture
 cargo test -p neutrino --features ssr --test vault_authz_contract owner_reveal -- --nocapture
-cargo test -p neutrino --features ssr --test vault_authz_contract break_glass -- --nocapture
+cargo test -p neutrino --features ssr --test vault_authz_contract reveal_denied -- --nocapture
 ```
 
 Backend contracts (preferred path; no UI graph):

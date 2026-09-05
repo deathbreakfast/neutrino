@@ -1,13 +1,12 @@
 //! Gauge per-secret authorization for Neutrino vault APIs.
 //!
-//! Prefer [`actor_can_secret`] / coarse create gates over legacy
-//! [`crate::vault_authz::VaultAccessContext`] JSON grants. The access context remains as a
-//! **compat bridge** for scope-prefix break-glass until dedicated Gauge grants ship in UI.
+//! Vault reveal/edit/delete gates use [`actor_can_secret`] / [`ensure_actor_can_secret`].
+//! Coarse create uses [`ensure_can_create_secret`].
 
 use gauge::actor_can_raw::actor_can_raw;
 use gauge::generated::PermissionDomain;
 use gauge::resource_permissions::{
-    ensure_resource_permission_bundle, permission_name, seed_resource_kind_catalog,
+    ensure_resource_permission_bundle, permission_name, seed_resource_kind_catalog, ActorId,
     KindDefaultGroups, ResourceAction, ResourceKindDescriptor, ResourcePermissionError,
     ResourcePermissionPolicy, ResourcePermissionSpec, StaticPermissionGate, UmbrellaPolicy,
 };
@@ -169,8 +168,9 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
     base.clone()
 }
 
-/// Authorization Valence derived from [`crate::vault_authz::VaultAccessContext::actor_label`].
+/// Authorization Valence derived from an actor label (e.g. `user:alice`).
 #[must_use]
+#[allow(dead_code)] // used by hosts / tests that build auth Valence from labels
 pub fn auth_valence_for_access(base: &Valence, actor_label: &str) -> Valence {
     auth_valence_for_label(base, Some(actor_label))
 }
@@ -202,8 +202,7 @@ pub async fn actor_can_secret(
         .map_err(|e| NeutrinoError::service("actor_can_secret", e))
 }
 
-/// Deny when the actor may not perform `action` on `secret_id` (no legacy bridge).
-#[allow(dead_code)] // reserved for Gauge-only callers without VaultAccessContext bridge
+/// Deny when the actor may not perform `action` on `secret_id`.
 pub async fn ensure_actor_can_secret(
     auth_v: &Valence,
     secret_id: &str,
@@ -284,6 +283,32 @@ pub async fn ensure_secret_permission_bundle(
         );
         return Ok(());
     }
+    let uid = user_id_from_actor_label(maintainer_actor).ok_or_else(|| {
+        NeutrinoError::service(
+            "ensure_secret_permission_bundle",
+            anyhow::anyhow!("maintainer is not a user label"),
+        )
+    })?;
+    let bare = uid.strip_prefix("user:").unwrap_or(uid.as_str()).trim();
+    let actor = if orm_v.actor().is_system() {
+        ActorId::user_for_system(orm_v, bare).map_err(|e| {
+            NeutrinoError::service("ensure_secret_permission_bundle", anyhow::anyhow!("{e}"))
+        })?
+    } else {
+        let from_v = ActorId::from_valence(orm_v).ok_or_else(|| {
+            NeutrinoError::service(
+                "ensure_secret_permission_bundle",
+                anyhow::anyhow!("session Valence has no user ActorId"),
+            )
+        })?;
+        if from_v.as_user_id() != Some(bare) {
+            return Err(NeutrinoError::service(
+                "ensure_secret_permission_bundle",
+                anyhow::anyhow!("maintainer does not match session user"),
+            ));
+        }
+        from_v
+    };
     ensure_resource_permission_bundle(
         orm_v,
         ResourcePermissionSpec {
@@ -291,7 +316,7 @@ pub async fn ensure_secret_permission_bundle(
             resource_id: sid,
             display_name: display_name.to_string(),
             actions: NEUTRINO_SECRET.default_actions(),
-            maintainer_actor: maintainer_actor.to_string(),
+            actor,
         },
     )
     .await

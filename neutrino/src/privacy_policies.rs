@@ -225,9 +225,12 @@ impl PolicyEvaluator for SecretVersionPermissionPolicyRaw {
             return Ok(true);
         }
         let action = Self::action_for_op(op);
-        let Some(resource_id) = record.get(self.id_field).and_then(resource_id_from_value) else {
+        let Some(raw_id) = record.get(self.id_field).and_then(resource_id_from_value) else {
             return Ok(false);
         };
+        // Version rows store `secret_id` as a Record (`neutrino_secret:<id>` or
+        // `{table,id}`). Gauge permissions are keyed by the bare secret id.
+        let resource_id = raw_id.strip_prefix("neutrino_secret:").unwrap_or(raw_id);
         let name = permission_name(self.kind, resource_id, action);
         actor_can_raw(v, &name).await
     }

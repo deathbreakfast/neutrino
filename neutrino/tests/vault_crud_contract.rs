@@ -19,7 +19,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use neutrino::vault::{
     create_vault_secret, delete_vault_secret, list_vault_secrets, neutrino_vault_ping,
-    reveal_vault_secret, rotate_vault_secret, store_from_valence, VaultAccessContext,
+    reveal_vault_secret, rotate_vault_secret, store_from_valence,
 };
 use neutrino::ValenceSealedStore;
 use valence::{
@@ -76,10 +76,6 @@ async fn test_valence() -> Valence {
 
 fn store(v: Valence) -> ValenceSealedStore {
     store_from_valence(v)
-}
-
-fn access(actor: &str) -> VaultAccessContext {
-    VaultAccessContext::owner_only(actor)
 }
 
 fn decode_plaintext_b64(b64: &str) -> Vec<u8> {
@@ -143,9 +139,7 @@ async fn list_vault_secrets_includes_created_happy_path() {
     .await
     .expect("create");
 
-    let rows = list_vault_secrets(&v, &access("actor"))
-        .await
-        .expect("list");
+    let rows = list_vault_secrets(&v).await.expect("list");
     let row = rows
         .iter()
         .find(|r| r.id == created.id)
@@ -171,7 +165,7 @@ async fn reveal_vault_secret_round_trips_happy_path() {
     .await
     .expect("create");
 
-    let revealed = reveal_vault_secret(&store, created.id.clone(), &access("actor"))
+    let revealed = reveal_vault_secret(&store, created.id.clone())
         .await
         .expect("reveal");
     let got = decode_plaintext_b64(&revealed.plaintext_b64);
@@ -197,19 +191,13 @@ async fn rotate_vault_secret_bumps_version_happy_path() {
     .expect("create");
     assert_eq!(created.current_version, 1);
 
-    let rotated = rotate_vault_secret(
-        &store,
-        created.id.clone(),
-        "version-two".into(),
-        "actor",
-        &access("actor"),
-    )
-    .await
-    .expect("rotate");
+    let rotated = rotate_vault_secret(&store, created.id.clone(), "version-two".into(), "actor")
+        .await
+        .expect("rotate");
     assert_eq!(rotated.id, created.id);
     assert_eq!(rotated.current_version, 2);
 
-    let revealed = reveal_vault_secret(&store, created.id, &access("actor"))
+    let revealed = reveal_vault_secret(&store, created.id)
         .await
         .expect("reveal after rotate");
     let got = decode_plaintext_b64(&revealed.plaintext_b64);
@@ -234,19 +222,17 @@ async fn delete_vault_secret_removes_from_list_happy_path() {
     .await
     .expect("create");
 
-    delete_vault_secret(&store, created.id.clone(), &access("actor"))
+    delete_vault_secret(&store, created.id.clone())
         .await
         .expect("delete");
 
-    let rows = list_vault_secrets(&v, &access("actor"))
-        .await
-        .expect("list");
+    let rows = list_vault_secrets(&v).await.expect("list");
     assert!(
         rows.iter().all(|r| r.id != created.id),
         "deleted secret must not appear in list"
     );
 
-    let reveal_err = reveal_vault_secret(&store, created.id, &access("actor"))
+    let reveal_err = reveal_vault_secret(&store, created.id)
         .await
         .expect_err("reveal after delete");
     assert_not_found_or_pending(&reveal_err.to_string());
@@ -259,8 +245,6 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
         valence: Arc::new(v.clone()),
         request_actor: Some("actor".into()),
     };
-    let access = access("actor");
-
     neutrino_vault_ping(&store).await.expect("ping");
 
     let created = create_vault_secret(
@@ -274,10 +258,10 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
     .await
     .expect("create");
 
-    let listed = list_vault_secrets(&v, &access).await.expect("list");
+    let listed = list_vault_secrets(&v).await.expect("list");
     assert!(listed.iter().any(|r| r.id == created.id));
 
-    let revealed = reveal_vault_secret(&store, created.id.clone(), &access)
+    let revealed = reveal_vault_secret(&store, created.id.clone())
         .await
         .expect("reveal");
     assert_eq!(
@@ -285,12 +269,12 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
         b"wf-v1"
     );
 
-    let rotated = rotate_vault_secret(&store, created.id.clone(), "wf-v2".into(), "actor", &access)
+    let rotated = rotate_vault_secret(&store, created.id.clone(), "wf-v2".into(), "actor")
         .await
         .expect("rotate");
     assert_eq!(rotated.current_version, 2);
 
-    let revealed2 = reveal_vault_secret(&store, created.id.clone(), &access)
+    let revealed2 = reveal_vault_secret(&store, created.id.clone())
         .await
         .expect("reveal after rotate");
     assert_eq!(
@@ -298,16 +282,14 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
         b"wf-v2"
     );
 
-    delete_vault_secret(&store, created.id.clone(), &access)
+    delete_vault_secret(&store, created.id.clone())
         .await
         .expect("delete");
 
-    let after = list_vault_secrets(&v, &access)
-        .await
-        .expect("list after delete");
+    let after = list_vault_secrets(&v).await.expect("list after delete");
     assert!(after.iter().all(|r| r.id != created.id));
 
-    let reveal_err = reveal_vault_secret(&store, created.id, &access)
+    let reveal_err = reveal_vault_secret(&store, created.id)
         .await
         .expect_err("reveal after delete");
     assert_not_found_or_pending(&reveal_err.to_string());
@@ -384,7 +366,7 @@ async fn create_vault_secret_empty_plaintext_rejected_sad() {
 #[tokio::test]
 async fn reveal_vault_secret_blank_id_rejected_sad() {
     let store = store(test_valence().await);
-    let err = reveal_vault_secret(&store, "  ".into(), &access("actor"))
+    let err = reveal_vault_secret(&store, "  ".into())
         .await
         .expect_err("blank id");
     assert!(err.to_string().contains("Secret id is required"));
@@ -393,7 +375,7 @@ async fn reveal_vault_secret_blank_id_rejected_sad() {
 #[tokio::test]
 async fn reveal_vault_secret_unknown_id_not_found_sad() {
     let store = store(test_valence().await);
-    let err = reveal_vault_secret(&store, "missing-secret-id".into(), &access("actor"))
+    let err = reveal_vault_secret(&store, "missing-secret-id".into())
         .await
         .expect_err("unknown id");
     assert_not_found_or_pending(&err.to_string());
@@ -402,7 +384,7 @@ async fn reveal_vault_secret_unknown_id_not_found_sad() {
 #[tokio::test]
 async fn delete_vault_secret_unknown_id_not_found_sad() {
     let store = store(test_valence().await);
-    let err = delete_vault_secret(&store, "missing-secret-id".into(), &access("actor"))
+    let err = delete_vault_secret(&store, "missing-secret-id".into())
         .await
         .expect_err("unknown id");
     assert_not_found_or_pending(&err.to_string());
@@ -422,7 +404,7 @@ async fn rotate_vault_secret_empty_plaintext_rejected_sad() {
     .await
     .expect("create");
 
-    let err = rotate_vault_secret(&store, created.id, String::new(), "actor", &access("actor"))
+    let err = rotate_vault_secret(&store, created.id, String::new(), "actor")
         .await
         .expect_err("empty new plaintext");
     assert!(err.to_string().contains("New plaintext is required"));
@@ -431,14 +413,8 @@ async fn rotate_vault_secret_empty_plaintext_rejected_sad() {
 #[tokio::test]
 async fn rotate_vault_secret_unknown_id_not_found_sad() {
     let store = store(test_valence().await);
-    let err = rotate_vault_secret(
-        &store,
-        "missing-secret-id".into(),
-        "new-pt".into(),
-        "actor",
-        &access("actor"),
-    )
-    .await
-    .expect_err("unknown id");
+    let err = rotate_vault_secret(&store, "missing-secret-id".into(), "new-pt".into(), "actor")
+        .await
+        .expect_err("unknown id");
     assert_not_found_or_pending(&err.to_string());
 }

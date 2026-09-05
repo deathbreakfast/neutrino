@@ -4,10 +4,10 @@
 //! against [`crate::ValenceSealedStore`]. Validation messages never include
 //! plaintext secret values.
 //!
-//! Authorization: list/reveal/delete/rotate require per-secret Gauge permissions when
-//! available, with [`VaultAccessContext`] as a compat bridge for scope-prefix break-glass.
+//! Authorization: list is browsable metadata; reveal/delete/rotate require
+//! per-secret Gauge permissions (checked via the store's request actor).
 //! Audit attribution: pass the request actor via [`store_from_valence_for_request`] while
-//! keeping system Valence for ORM.
+//! keeping system Valence for ORM when the host uses a control-plane lane.
 
 use std::sync::Arc;
 
@@ -20,52 +20,22 @@ use valence::Valence;
 use crate::error::{NeutrinoError, NeutrinoResult};
 use crate::sealed_store::{list_secrets, ListedSecret, ValenceSealedStore};
 use crate::secret_store::{PutSecretRequest, SecretId, SecretStore};
-use crate::vault_authz::ensure_can_access_secret;
-use crate::vault_gauge::{actor_can_secret, auth_valence_for_access};
+use crate::vault_gauge::{auth_valence_for_store, ensure_actor_can_secret};
 use gauge::resource_permissions::ResourceAction;
 
-pub use crate::vault_authz::VaultAccessContext;
-
-async fn ensure_vault_reveal(
-    orm_v: &Valence,
-    access: &VaultAccessContext,
-    secret_id: &str,
-    owner_subject_json: &str,
-    scope_path: &str,
-) -> NeutrinoResult<()> {
-    let auth_v = auth_valence_for_access(orm_v, access.actor_label.as_str());
-    if actor_can_secret(&auth_v, secret_id, ResourceAction::Reveal).await? {
-        return Ok(());
-    }
-    ensure_can_access_secret(access, owner_subject_json, scope_path)
+async fn ensure_vault_reveal(store: &ValenceSealedStore, secret_id: &str) -> NeutrinoResult<()> {
+    let auth_v = auth_valence_for_store(store);
+    ensure_actor_can_secret(&auth_v, secret_id, ResourceAction::Reveal).await
 }
 
-async fn ensure_vault_edit(
-    orm_v: &Valence,
-    access: &VaultAccessContext,
-    secret_id: &str,
-    owner_subject_json: &str,
-    scope_path: &str,
-) -> NeutrinoResult<()> {
-    let auth_v = auth_valence_for_access(orm_v, access.actor_label.as_str());
-    if actor_can_secret(&auth_v, secret_id, ResourceAction::Edit).await? {
-        return Ok(());
-    }
-    ensure_can_access_secret(access, owner_subject_json, scope_path)
+async fn ensure_vault_edit(store: &ValenceSealedStore, secret_id: &str) -> NeutrinoResult<()> {
+    let auth_v = auth_valence_for_store(store);
+    ensure_actor_can_secret(&auth_v, secret_id, ResourceAction::Edit).await
 }
 
-async fn ensure_vault_delete(
-    orm_v: &Valence,
-    access: &VaultAccessContext,
-    secret_id: &str,
-    owner_subject_json: &str,
-    scope_path: &str,
-) -> NeutrinoResult<()> {
-    let auth_v = auth_valence_for_access(orm_v, access.actor_label.as_str());
-    if actor_can_secret(&auth_v, secret_id, ResourceAction::Delete).await? {
-        return Ok(());
-    }
-    ensure_can_access_secret(access, owner_subject_json, scope_path)
+async fn ensure_vault_delete(store: &ValenceSealedStore, secret_id: &str) -> NeutrinoResult<()> {
+    let auth_v = auth_valence_for_store(store);
+    ensure_actor_can_secret(&auth_v, secret_id, ResourceAction::Delete).await
 }
 
 /// Row for vault list views (no ciphertext / plaintext).
@@ -172,10 +142,7 @@ pub async fn neutrino_vault_ping(store: &ValenceSealedStore) -> NeutrinoResult<(
 ///
 /// The returned DTO excludes ciphertext and `owner_subject_json`; reveal/delete/rotate
 /// still enforce per-secret Gauge permissions separately.
-pub async fn list_vault_secrets(
-    valence: &Valence,
-    _access: &VaultAccessContext,
-) -> NeutrinoResult<Vec<VaultSecretRow>> {
+pub async fn list_vault_secrets(valence: &Valence) -> NeutrinoResult<Vec<VaultSecretRow>> {
     let listed = list_secrets(valence).await?;
     Ok(listed
         .into_iter()
@@ -218,78 +185,29 @@ pub async fn create_vault_secret(
     })
 }
 
-/// Returns the current version plaintext (base64) when `access` is authorized.
+/// Returns the current version plaintext (base64) when the store actor is authorized.
 pub async fn reveal_vault_secret(
     store: &ValenceSealedStore,
     id: String,
-    access: &VaultAccessContext,
 ) -> NeutrinoResult<RevealedVaultSecret> {
     let sid = require_secret_id(&id)?;
-    let meta = listed_for_id(store.valence.as_ref(), &sid).await?;
-    ensure_vault_reveal(
-        store.valence.as_ref(),
-        access,
-        &sid,
-        &meta.owner_subject_json,
-        &meta.scope_path,
-    )
-    .await?;
+    let _meta = listed_for_id(store.valence.as_ref(), &sid).await?;
+    ensure_vault_reveal(store, &sid).await?;
     let revealed = store.get(&SecretId(sid)).await?;
     Ok(RevealedVaultSecret {
         plaintext_b64: B64.encode(revealed.plaintext.as_slice()),
     })
 }
 
-/// Deletes a secret and all versions when `access` is authorized.
+/// Deletes a secret and all versions when the store actor is authorized.
 ///
-/// [`ValenceSealedStore::delete`](crate::ValenceSealedStore::delete) queues Valence
-/// pending-deletion; this then runs the deletion DAG so list/reveal no longer see
-/// the row (product hard-delete contract).
-pub async fn delete_vault_secret(
-    store: &ValenceSealedStore,
-    id: String,
-    access: &VaultAccessContext,
-) -> NeutrinoResult<()> {
+/// [`ValenceSealedStore::delete`] audits, runs synchronous Valence `delete_now`
+/// (secret + cascaded versions), then tears down the Gauge permission bundle.
+pub async fn delete_vault_secret(store: &ValenceSealedStore, id: String) -> NeutrinoResult<()> {
     let sid = require_secret_id(&id)?;
-    let meta = listed_for_id(store.valence.as_ref(), &sid).await?;
-    ensure_vault_delete(
-        store.valence.as_ref(),
-        access,
-        &sid,
-        &meta.owner_subject_json,
-        &meta.scope_path,
-    )
-    .await?;
-    store.delete(&SecretId(sid.clone())).await?;
-    finalize_secret_deletion(store.valence.as_ref(), &sid).await?;
-    crate::vault_gauge::delete_secret_permission_bundle(store.valence.as_ref(), &sid).await
-}
-
-const SECRET_TABLE: &str = "neutrino_secret";
-
-async fn finalize_secret_deletion(valence: &Valence, bare_id: &str) -> NeutrinoResult<()> {
-    let dag = valence::deletion::dag::DeletionDag::compute(SECRET_TABLE, bare_id, valence)
-        .await
-        .map_err(|e| NeutrinoError::service("delete_dag", e))?;
-    if !dag.restrict_violations.is_empty() {
-        return Err(NeutrinoError::service(
-            "delete_dag",
-            anyhow::anyhow!(
-                "secret delete restricted ({} violation(s))",
-                dag.restrict_violations.len()
-            ),
-        ));
-    }
-    for node in &dag.nodes {
-        let backend = valence
-            .backend_for_table(&node.table)
-            .map_err(|e| NeutrinoError::service("delete_dag", e))?;
-        backend
-            .delete_record(&node.table, &node.record_id)
-            .await
-            .map_err(|e| NeutrinoError::service("delete_dag", e))?;
-    }
-    Ok(())
+    let _meta = listed_for_id(store.valence.as_ref(), &sid).await?;
+    ensure_vault_delete(store, &sid).await?;
+    store.delete(&SecretId(sid)).await
 }
 
 /// Rotates ciphertext to a new version and returns updated metadata.
@@ -298,18 +216,10 @@ pub async fn rotate_vault_secret(
     id: String,
     new_plaintext: String,
     actor: &str,
-    access: &VaultAccessContext,
 ) -> NeutrinoResult<VaultSecretRow> {
     let sid = require_secret_id(&id)?;
-    let meta = listed_for_id(store.valence.as_ref(), &sid).await?;
-    ensure_vault_edit(
-        store.valence.as_ref(),
-        access,
-        &sid,
-        &meta.owner_subject_json,
-        &meta.scope_path,
-    )
-    .await?;
+    let _meta = listed_for_id(store.valence.as_ref(), &sid).await?;
+    ensure_vault_edit(store, &sid).await?;
     let pt = require_new_plaintext(new_plaintext)?;
 
     let cref = store.rotate(&SecretId(sid.clone()), pt, actor).await?;
