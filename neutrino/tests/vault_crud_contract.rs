@@ -139,9 +139,7 @@ async fn list_vault_secrets_includes_created_happy_path() {
     .await
     .expect("create");
 
-    let rows = list_vault_secrets(&v)
-        .await
-        .expect("list");
+    let rows = list_vault_secrets(&v).await.expect("list");
     let row = rows
         .iter()
         .find(|r| r.id == created.id)
@@ -193,14 +191,9 @@ async fn rotate_vault_secret_bumps_version_happy_path() {
     .expect("create");
     assert_eq!(created.current_version, 1);
 
-    let rotated = rotate_vault_secret(
-        &store,
-        created.id.clone(),
-        "version-two".into(),
-        "actor",
-    )
-    .await
-    .expect("rotate");
+    let rotated = rotate_vault_secret(&store, created.id.clone(), "version-two".into(), "actor")
+        .await
+        .expect("rotate");
     assert_eq!(rotated.id, created.id);
     assert_eq!(rotated.current_version, 2);
 
@@ -233,9 +226,7 @@ async fn delete_vault_secret_removes_from_list_happy_path() {
         .await
         .expect("delete");
 
-    let rows = list_vault_secrets(&v)
-        .await
-        .expect("list");
+    let rows = list_vault_secrets(&v).await.expect("list");
     assert!(
         rows.iter().all(|r| r.id != created.id),
         "deleted secret must not appear in list"
@@ -295,9 +286,7 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
         .await
         .expect("delete");
 
-    let after = list_vault_secrets(&v)
-        .await
-        .expect("list after delete");
+    let after = list_vault_secrets(&v).await.expect("list after delete");
     assert!(after.iter().all(|r| r.id != created.id));
 
     let reveal_err = reveal_vault_secret(&store, created.id)
@@ -424,13 +413,8 @@ async fn rotate_vault_secret_empty_plaintext_rejected_sad() {
 #[tokio::test]
 async fn rotate_vault_secret_unknown_id_not_found_sad() {
     let store = store(test_valence().await);
-    let err = rotate_vault_secret(
-        &store,
-        "missing-secret-id".into(),
-        "new-pt".into(),
-        "actor",
-    )
-    .await
-    .expect_err("unknown id");
+    let err = rotate_vault_secret(&store, "missing-secret-id".into(), "new-pt".into(), "actor")
+        .await
+        .expect_err("unknown id");
     assert_not_found_or_pending(&err.to_string());
 }

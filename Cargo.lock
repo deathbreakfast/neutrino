@@ -1033,7 +1033,6 @@ dependencies = [
 [[package]]
 name = "gauge"
 version = "0.1.0"
-source = "git+https://github.com/deathbreakfast/gauge?branch=main#0a5e4aaf78527f90d6669c2c102e4c60d8cb089c"
 dependencies = [
  "anyhow",
  "async-trait",

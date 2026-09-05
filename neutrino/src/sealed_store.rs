@@ -29,7 +29,7 @@ use crate::vault_gauge::{
 };
 use gauge::resource_permissions::ResourceAction;
 
-/// Non-sensitive row for vault listings (no ciphertext).
+/// Non-sensitive row for vault listings (no ciphertext, no owner subject).
 #[derive(Debug, Clone)]
 pub struct ListedSecret {
     /// Secret id.
@@ -44,14 +44,12 @@ pub struct ListedSecret {
     pub current_version: i64,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
-    /// Owner / grant JSON used for per-secret authz.
-    pub owner_subject_json: String,
 }
 
 /// All [`NeutrinoSecret`] rows (metadata only), sorted by `created_at` ascending.
 ///
-/// Returns every secret's metadata; `owner_subject_json` is for internal use and must not
-/// appear in product list DTOs ([`crate::vault::VaultSecretRow`]).
+/// Returns every secret's metadata. Owner subject JSON is intentionally omitted so
+/// product list DTOs cannot leak it by field copy (see [`crate::vault::VaultSecretRow`]).
 pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>> {
     let mut rows: Vec<NeutrinoSecret> = NeutrinoSecret::query(valence)
         .await
@@ -69,21 +67,8 @@ pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>
             kind: r.kind().clone(),
             current_version: *r.current_version(),
             created_at: *r.created_at(),
-            owner_subject_json: owner_subject_wire(r.owner_subject_json()),
         })
         .collect())
-}
-
-/// Wire form for `owner_subject_json` (JSON object text).
-///
-/// SQLite read/update paths sometimes surface the document as a JSON string
-/// scalar (possibly nested). Unwrap until we have an object/array or a plain
-/// actor label.
-fn owner_subject_wire(v: &serde_json::Value) -> String {
-    match normalize_owner_subject_value(v.clone()) {
-        serde_json::Value::Null => "{}".to_string(),
-        other => serde_json::to_string(&other).unwrap_or_else(|_| "{}".to_string()),
-    }
 }
 
 fn normalize_owner_subject_value(v: serde_json::Value) -> serde_json::Value {
@@ -221,10 +206,11 @@ async fn emit_access(
 
 /// Production store: encrypts with `NEUTRINO_MASTER_KEY`, persists via Valence models.
 pub struct ValenceSealedStore {
-    /// Valence handle used for all model reads/writes and audit event appends.
+    /// Valence handle used for model reads/writes and denial audit appends.
     ///
     /// Vault server fns keep this as **system** Valence so ORM privacy
-    /// (`SYSTEM_ONLY`) succeeds; human attribution uses [`Self::request_actor`].
+    /// (`SYSTEM_ONLY`) succeeds and denial audits can append without mid-request
+    /// elevation; human attribution uses [`Self::request_actor`].
     pub valence: Arc<Valence>,
     /// Authenticated request actor label for audit/telemetry.
     /// When `None`, audit falls back to [`Self::valence`]'s actor.
@@ -456,9 +442,9 @@ impl SecretStore for ValenceSealedStore {
 
         // Sync DAG delete while Gauge grants still authorize version CascadeDelete;
         // then tear down the per-secret permission bundle.
-        NeutrinoSecret::delete_now(sid, self.valence.as_ref())
+        NeutrinoSecret::delete(sid, self.valence.as_ref())
             .await
-            .map_err(|e| NeutrinoError::service("delete_now", e))?;
+            .map_err(|e| NeutrinoError::service("delete", e))?;
         delete_secret_permission_bundle(self.valence.as_ref(), sid).await?;
         Ok(())
     }

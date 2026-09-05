@@ -81,6 +81,15 @@ audit append fails, the API returns an error (fail closed). Read paths (`get`,
 `reveal`) log the failure and continue so availability is not blocked by audit
 storage outages.
 
+Denial-path audit rows require an **already-System** Valence sink on
+[`ValenceSealedStore`](neutrino/src/sealed_store.rs) (host boot). 
+`append_denial_audit_event` refuses mid-request elevation — denied session actors
+cannot forge the chain via `defer_to_edge` create. Success-path audits keep the
+session actor.
+
+`ListedSecret` omits `owner_subject_json` so product list DTOs cannot leak owner
+subject by field copy (`tests/no_elevate_path_gate.rs`).
+
 ## Client reveal transport
 
 [`RevealedVaultSecret`](neutrino/src/vault.rs) zeroizes `plaintext_b64` on drop

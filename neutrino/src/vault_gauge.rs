@@ -6,7 +6,7 @@
 use gauge::actor_can_raw::actor_can_raw;
 use gauge::generated::PermissionDomain;
 use gauge::resource_permissions::{
-    ensure_resource_permission_bundle, permission_name, seed_resource_kind_catalog,
+    ensure_resource_permission_bundle, permission_name, seed_resource_kind_catalog, ActorId,
     KindDefaultGroups, ResourceAction, ResourceKindDescriptor, ResourcePermissionError,
     ResourcePermissionPolicy, ResourcePermissionSpec, StaticPermissionGate, UmbrellaPolicy,
 };
@@ -283,6 +283,32 @@ pub async fn ensure_secret_permission_bundle(
         );
         return Ok(());
     }
+    let uid = user_id_from_actor_label(maintainer_actor).ok_or_else(|| {
+        NeutrinoError::service(
+            "ensure_secret_permission_bundle",
+            anyhow::anyhow!("maintainer is not a user label"),
+        )
+    })?;
+    let bare = uid.strip_prefix("user:").unwrap_or(uid.as_str()).trim();
+    let actor = if orm_v.actor().is_system() {
+        ActorId::user_for_system(orm_v, bare).map_err(|e| {
+            NeutrinoError::service("ensure_secret_permission_bundle", anyhow::anyhow!("{e}"))
+        })?
+    } else {
+        let from_v = ActorId::from_valence(orm_v).ok_or_else(|| {
+            NeutrinoError::service(
+                "ensure_secret_permission_bundle",
+                anyhow::anyhow!("session Valence has no user ActorId"),
+            )
+        })?;
+        if from_v.as_user_id() != Some(bare) {
+            return Err(NeutrinoError::service(
+                "ensure_secret_permission_bundle",
+                anyhow::anyhow!("maintainer does not match session user"),
+            ));
+        }
+        from_v
+    };
     ensure_resource_permission_bundle(
         orm_v,
         ResourcePermissionSpec {
@@ -290,7 +316,7 @@ pub async fn ensure_secret_permission_bundle(
             resource_id: sid,
             display_name: display_name.to_string(),
             actions: NEUTRINO_SECRET.default_actions(),
-            maintainer_actor: maintainer_actor.to_string(),
+            actor,
         },
     )
     .await

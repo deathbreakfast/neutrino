@@ -95,14 +95,9 @@ async fn reveal_at_version_archived_denied_active_allowed() {
     .await
     .expect("create");
 
-    rotate_vault_secret(
-        &store,
-        created.id.clone(),
-        "version-two".into(),
-        "actor",
-    )
-    .await
-    .expect("rotate");
+    rotate_vault_secret(&store, created.id.clone(), "version-two".into(), "actor")
+        .await
+        .expect("rotate");
 
     let archived_err = store
         .reveal_at_version(&SecretId(created.id.clone()), 1)
@@ -181,24 +176,14 @@ async fn vault_mutate_denied_when_audit_append_fails() {
     assert!(!still_there.plaintext_b64.is_empty());
 
     set_audit_append_fail_for_tests(false);
-    let rotate_err = rotate_vault_secret(
-        &store,
-        created.id.clone(),
-        "rotated".into(),
-        "actor",
-    )
-    .await;
+    let rotate_err =
+        rotate_vault_secret(&store, created.id.clone(), "rotated".into(), "actor").await;
     assert!(rotate_err.is_ok(), "rotate with audit restored");
 
     set_audit_append_fail_for_tests(true);
-    let rotate_fail = rotate_vault_secret(
-        &store,
-        created.id,
-        "rotated-again".into(),
-        "actor",
-    )
-    .await
-    .expect_err("rotate must fail closed when audit append fails");
+    let rotate_fail = rotate_vault_secret(&store, created.id, "rotated-again".into(), "actor")
+        .await
+        .expect_err("rotate must fail closed when audit append fails");
     assert!(rotate_fail
         .to_string()
         .contains("audit append disabled for test"));

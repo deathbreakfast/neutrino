@@ -74,9 +74,7 @@ async fn matrix_authenticated_user_browses_all_secrets_happy() {
     )
     .await
     .expect("create");
-    let bob_list = list_vault_secrets(&v)
-        .await
-        .expect("list");
+    let bob_list = list_vault_secrets(&v).await.expect("list");
     assert!(bob_list.iter().any(|r| r.id == row.id));
 }
 
@@ -96,8 +94,8 @@ async fn matrix_stranger_reveal_denied_sad() {
     .expect("create");
     let bob_store = store_from_valence_for_request(v.clone(), "user:bob");
     let err = reveal_vault_secret(&bob_store, row.id)
-    .await
-    .expect_err("stranger reveal");
+        .await
+        .expect_err("stranger reveal");
     assert!(matches!(err, NeutrinoError::AccessDenied { .. }));
 }
 
@@ -116,7 +114,7 @@ async fn matrix_creator_reveal_after_put_happy() {
     .await
     .expect("create");
     let revealed = reveal_vault_secret(&store, row.id)
-    .await
-    .expect("creator reveal via owners group seed");
+        .await
+        .expect("creator reveal via owners group seed");
     assert!(!revealed.plaintext_b64.is_empty());
 }
