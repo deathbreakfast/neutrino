@@ -290,7 +290,8 @@
 //!
 //! ## Delete secret
 //!
-//! Delete removes the secret row and version ciphertext via Valence
+//! Secret deletion is the permanent retirement path for a stored credential. It removes
+//! the secret row and version ciphertext via Valence
 //! [`Model::delete_now`](valence::Model::delete_now) (synchronous DAG), then tears down the
 //! Gauge per-secret bundle. Umbrella groups, shared principals, `CreateNeutrinoSecrets`,
 //! and audit rows remain.
