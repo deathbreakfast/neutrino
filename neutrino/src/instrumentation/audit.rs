@@ -126,7 +126,13 @@ pub async fn append_valence_audit_event(
     .await
 }
 
-/// Append a denial audit row via System Valence (denied actors cannot Update the parent secret).
+/// Append a denial audit row under System Valence (SM-25 allowlisted elevate).
+///
+/// Denied session actors cannot pass parent-secret Update via `defer_to_edge`, so
+/// this path rebinds only for the hash-chained denial append (`operation =
+/// neutrino_audit_denial`). If the caller is already System, the Valence is
+/// reused with no rebind. Do not copy this elevate for reveal/rotate/delete/create
+/// or TOTP step-up — vault product wrappers keep session Valence (see `SECURITY.md`).
 pub async fn append_denial_audit_event(
     system_valence: &Valence,
     actor: &str,
