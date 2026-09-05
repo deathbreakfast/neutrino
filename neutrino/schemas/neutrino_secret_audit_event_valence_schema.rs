@@ -38,8 +38,9 @@ valence_schema! {
                 required: true,
             },
             secret: {
+                // Optional so secret delete can SetNull and keep the append-only audit row.
                 r#type: FieldType::Record("neutrino_secret"),
-                required: true,
+                required: false,
             },
             version_num: {
                 r#type: FieldType::Integer,
@@ -62,7 +63,7 @@ valence_schema! {
             secret: {
                 table: "neutrino_secret",
                 cardinality: HasOne,
-                required: true,
+                required: false,
                 on_delete: SetNull,
             },
         ],

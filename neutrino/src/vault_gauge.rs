@@ -1,8 +1,7 @@
 //! Gauge per-secret authorization for Neutrino vault APIs.
 //!
-//! Prefer [`actor_can_secret`] / coarse create gates over legacy
-//! [`crate::vault_authz::VaultAccessContext`] JSON grants. The access context remains as a
-//! **compat bridge** for scope-prefix break-glass until dedicated Gauge grants ship in UI.
+//! Vault reveal/edit/delete gates use [`actor_can_secret`] / [`ensure_actor_can_secret`].
+//! Coarse create uses [`ensure_can_create_secret`].
 
 use gauge::actor_can_raw::actor_can_raw;
 use gauge::generated::PermissionDomain;
@@ -169,8 +168,9 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
     base.clone()
 }
 
-/// Authorization Valence derived from [`crate::vault_authz::VaultAccessContext::actor_label`].
+/// Authorization Valence derived from an actor label (e.g. `user:alice`).
 #[must_use]
+#[allow(dead_code)] // used by hosts / tests that build auth Valence from labels
 pub fn auth_valence_for_access(base: &Valence, actor_label: &str) -> Valence {
     auth_valence_for_label(base, Some(actor_label))
 }
@@ -202,8 +202,7 @@ pub async fn actor_can_secret(
         .map_err(|e| NeutrinoError::service("actor_can_secret", e))
 }
 
-/// Deny when the actor may not perform `action` on `secret_id` (no legacy bridge).
-#[allow(dead_code)] // reserved for Gauge-only callers without VaultAccessContext bridge
+/// Deny when the actor may not perform `action` on `secret_id`.
 pub async fn ensure_actor_can_secret(
     auth_v: &Valence,
     secret_id: &str,

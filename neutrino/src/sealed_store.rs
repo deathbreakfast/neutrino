@@ -23,9 +23,8 @@ use crate::instrumentation::{
 };
 use crate::key_source::master_key_from_env;
 use crate::secret_store::{PutSecretRequest, RevealedSecret, SecretId, SecretRef, SecretStore};
-use crate::vault_authz::{ensure_can_access_secret, VaultAccessContext};
 use crate::vault_gauge::{
-    actor_can_secret, auth_valence_for_store, delete_secret_permission_bundle,
+    auth_valence_for_store, delete_secret_permission_bundle, ensure_actor_can_secret,
     ensure_can_create_secret, ensure_secret_permission_bundle, maintainer_actor_for_put,
 };
 use gauge::resource_permissions::ResourceAction;
@@ -51,8 +50,8 @@ pub struct ListedSecret {
 
 /// All [`NeutrinoSecret`] rows (metadata only), sorted by `created_at` ascending.
 ///
-/// Returns every secret's metadata; `owner_subject_json` is included for vault-layer
-/// authz bridges but must not appear in product list DTOs ([`crate::vault::VaultSecretRow`]).
+/// Returns every secret's metadata; `owner_subject_json` is for internal use and must not
+/// appear in product list DTOs ([`crate::vault::VaultSecretRow`]).
 pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>> {
     let mut rows: Vec<NeutrinoSecret> = NeutrinoSecret::query(valence)
         .await
@@ -75,7 +74,7 @@ pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>
         .collect())
 }
 
-/// Wire form for [`crate::vault_authz`] (JSON object text).
+/// Wire form for `owner_subject_json` (JSON object text).
 ///
 /// SQLite read/update paths sometimes surface the document as a JSON string
 /// scalar (possibly nested). Unwrap until we have an object/array or a plain
@@ -146,26 +145,13 @@ fn audit_append_must_succeed(action: &'static str) -> bool {
 /// Gate for `put_or_reuse` when a name+scope row already exists (decrypt / rotate).
 ///
 /// Create permission alone must not authorize overwriting another principal's secret.
-/// System / Super User / per-secret Edit, or owner/grant/prefix via
-/// [`VaultAccessContext`], may proceed — same OR story as vault rotate.
+/// System / Super User / per-secret Edit may proceed — same story as vault rotate.
 async fn ensure_may_reuse_or_rotate_existing(
     store: &ValenceSealedStore,
     secret_id: &str,
-    owner_subject_json: &str,
-    scope_path: &str,
 ) -> NeutrinoResult<()> {
     let auth_v = auth_valence_for_store(store);
-    if actor_can_secret(&auth_v, secret_id, ResourceAction::Edit).await? {
-        return Ok(());
-    }
-    let label = store
-        .request_actor
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| audit_actor_from_valence(store.valence.as_ref()));
-    let access = VaultAccessContext::owner_only(label);
-    ensure_can_access_secret(&access, owner_subject_json, scope_path)
+    ensure_actor_can_secret(&auth_v, secret_id, ResourceAction::Edit).await
 }
 
 async fn emit_access(
@@ -378,14 +364,7 @@ impl SecretStore for ValenceSealedStore {
             )
         })?;
         let sid = extract_id_from_record(rec).map_err(|e| NeutrinoError::service("valence", e))?;
-        let owner_json = owner_subject_wire(existing.owner_subject_json());
-        ensure_may_reuse_or_rotate_existing(
-            self,
-            sid.as_str(),
-            owner_json.as_str(),
-            existing.scope_path().as_str(),
-        )
-        .await?;
+        ensure_may_reuse_or_rotate_existing(self, sid.as_str()).await?;
         let id = SecretId(sid);
         let revealed = self.get(&id).await?;
         if revealed.plaintext.as_slice() == req.plaintext.as_slice() {
@@ -475,9 +454,12 @@ impl SecretStore for ValenceSealedStore {
         )
         .await?;
 
-        // Rows are removed in `vault::finalize_secret_deletion` (deletion DAG).
-        // Do not ORM-delete or tear down Gauge grants here — session Valence
-        // fails version cascades after the permission bundle is removed.
+        // Sync DAG delete while Gauge grants still authorize version CascadeDelete;
+        // then tear down the per-secret permission bundle.
+        NeutrinoSecret::delete_now(sid, self.valence.as_ref())
+            .await
+            .map_err(|e| NeutrinoError::service("delete_now", e))?;
+        delete_secret_permission_bundle(self.valence.as_ref(), sid).await?;
         Ok(())
     }
 
@@ -548,7 +530,7 @@ impl SecretStore for ValenceSealedStore {
             .set_updated_at(now)
             .map_err(|e| NeutrinoError::service("rotate", e))?
             // Re-assert owner as a JSON object so SQLite update paths that
-            // string-wrap Json scalars cannot break the authz compat bridge.
+            // string-wrap Json scalars stay stable.
             .set_owner_subject_json(normalize_owner_subject_value(
                 secret.owner_subject_json().clone(),
             ))

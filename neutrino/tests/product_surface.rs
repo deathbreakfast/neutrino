@@ -356,7 +356,12 @@ fn acl_placeholder_page_happy_path() {
     let Some(page) = read_app("pages/acl_manage.rs") else {
         return;
     };
-    for needle in ["AclManagePage", "Secret ACLs", "ACL matrix UI"] {
+    for needle in [
+        "AclManagePage",
+        "Secret access grants",
+        "grant_secret_action",
+        "list_secret_grants",
+    ] {
         assert!(page.contains(needle), "AclManagePage missing `{needle}`");
     }
 }

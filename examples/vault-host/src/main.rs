@@ -42,7 +42,6 @@ use neutrino::bootstrap_seeder::seed_bootstrap_secrets_with;
 use neutrino::create_initial_neutrino_groups;
 use neutrino::vault::{
     create_vault_secret, reveal_vault_secret, rotate_vault_secret, store_from_valence_for_request,
-    VaultAccessContext,
 };
 use tower::ServiceExt;
 use valence::{
@@ -199,8 +198,12 @@ async fn bootstrap_vault() -> HostState {
     .await
     .expect("create");
 
-    let bob = VaultAccessContext::owner_only("user:bob");
-    let denied = reveal_vault_secret(&store, created.id.clone(), &bob)
+    let bob_store = store_from_valence_for_request(
+        // Same backend as alice store (clone Valence from store's Arc).
+        (*store.valence).clone(),
+        "user:bob",
+    );
+    let denied = reveal_vault_secret(&bob_store, created.id.clone())
         .await
         .expect_err("bob must be role-gated");
     assert!(
@@ -213,19 +216,17 @@ async fn bootstrap_vault() -> HostState {
         "got: {denied:?}"
     );
 
-    let alice = VaultAccessContext::owner_only("user:alice");
     let rotated = rotate_vault_secret(
         &store,
         created.id.clone(),
         "new-secret".into(),
         "user:alice",
-        &alice,
     )
     .await
     .expect("rotate");
     assert!(rotated.current_version > created.current_version);
 
-    let revealed = reveal_vault_secret(&store, created.id.clone(), &alice)
+    let revealed = reveal_vault_secret(&store, created.id.clone())
         .await
         .expect("reveal");
     let plaintext = B64.decode(revealed.plaintext_b64.as_bytes()).expect("b64");

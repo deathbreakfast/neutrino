@@ -17,7 +17,7 @@ use gauge::service;
 use neutrino::secret_store::{PutSecretRequest, SecretStore};
 use neutrino::vault::{
     create_vault_secret, delete_vault_secret, list_vault_secrets, reveal_vault_secret,
-    rotate_vault_secret, store_from_valence_for_request, VaultAccessContext,
+    rotate_vault_secret, store_from_valence_for_request,
 };
 use neutrino::{NeutrinoError, ValenceSealedStore};
 use valence::{
@@ -331,8 +331,7 @@ async fn reveal_denied_without_reveal_grant_sad() {
     let _ = stranger_v;
     let err = reveal_vault_secret(
         &stranger_store,
-        created.id,
-        &VaultAccessContext::owner_only("user:stranger_u"),
+        created.id
     )
     .await
     .expect_err("stranger must not reveal");
@@ -361,14 +360,9 @@ async fn reveal_allowed_via_gauge_grant_without_legacy_owner_happy() {
     .await;
 
     let store = store_from_valence_for_request(system.clone(), "user:grantee_reveal");
-    let revealed = reveal_vault_secret(
-        &store,
-        secret_id,
-        // Not owner and no scope prefix — legacy bridge must not allow.
-        &VaultAccessContext::owner_only("user:grantee_reveal"),
-    )
+    let revealed = reveal_vault_secret(&store, secret_id)
     .await
-    .expect("Gauge Reveal grant must allow without legacy owner");
+    .expect("Gauge Reveal grant must allow");
     // "pt" → standard base64 (never log other plaintext in assertions).
     assert_eq!(revealed.plaintext_b64, "cHQ=");
 }
@@ -381,7 +375,7 @@ async fn list_browsable_all_secrets_reveal_still_gated_happy() {
     seed_user("stranger_list", "stranger_list@example.test", &system).await;
     grant_secret_action(&system, &secret_id, ResourceAction::View, "viewer_list").await;
 
-    let rows = list_vault_secrets(&system, &VaultAccessContext::owner_only("user:viewer_list"))
+    let rows = list_vault_secrets(&system)
         .await
         .expect("list");
     assert!(
@@ -389,10 +383,7 @@ async fn list_browsable_all_secrets_reveal_still_gated_happy() {
         "list includes secret for viewer"
     );
 
-    let stranger_rows = list_vault_secrets(
-        &system,
-        &VaultAccessContext::owner_only("user:stranger_list"),
-    )
+    let stranger_rows = list_vault_secrets(&system)
     .await
     .expect("list");
     assert!(
@@ -401,11 +392,7 @@ async fn list_browsable_all_secrets_reveal_still_gated_happy() {
     );
 
     let store = store_from_valence_for_request(system.clone(), "user:stranger_list");
-    let err = reveal_vault_secret(
-        &store,
-        secret_id.clone(),
-        &VaultAccessContext::owner_only("user:stranger_list"),
-    )
+    let err = reveal_vault_secret(&store, secret_id.clone())
     .await
     .expect_err("stranger reveal must deny");
     assert!(
@@ -422,13 +409,7 @@ async fn rotate_denied_without_edit_grant_sad() {
     grant_secret_action(&system, &secret_id, ResourceAction::View, "viewer_rot").await;
 
     let store = store_from_valence_for_request(system.clone(), "user:viewer_rot");
-    let err = rotate_vault_secret(
-        &store,
-        secret_id,
-        "new-pt".into(),
-        "user:viewer_rot",
-        &VaultAccessContext::owner_only("user:viewer_rot"),
-    )
+    let err = rotate_vault_secret(&store, secret_id, "new-pt".into(), "user:viewer_rot")
     .await
     .expect_err("View without Edit must deny rotate");
     assert!(
@@ -450,11 +431,7 @@ async fn delete_denied_without_delete_grant_sad() {
     grant_secret_action(&system, &secret_id, ResourceAction::View, "viewer_del").await;
 
     let store = store_from_valence_for_request(system.clone(), "user:viewer_del");
-    let err = delete_vault_secret(
-        &store,
-        secret_id.clone(),
-        &VaultAccessContext::owner_only("user:viewer_del"),
-    )
+    let err = delete_vault_secret(&store, secret_id.clone())
     .await
     .expect_err("View without Delete must deny delete");
     assert!(
@@ -467,8 +444,8 @@ async fn delete_denied_without_delete_grant_sad() {
         "got: {err:?}"
     );
 
-    // Side effect: secret still listed for owner (legacy owner match).
-    let rows = list_vault_secrets(&system, &VaultAccessContext::owner_only("user:owner_del"))
+    // Side effect: secret still listed for owner (secret still listed).
+    let rows = list_vault_secrets(&system)
         .await
         .expect("owner list");
     assert!(
@@ -518,11 +495,7 @@ async fn put_or_reuse_denied_for_non_owner_creator_sad() {
         "got: {err:?}"
     );
 
-    let still = reveal_vault_secret(
-        &owner_store,
-        created.id,
-        &VaultAccessContext::owner_only("user:owner_reuse"),
-    )
+    let still = reveal_vault_secret(&owner_store, created.id)
     .await
     .expect("owner reveal after denied reuse");
     assert_eq!(still.plaintext_b64, "b3duZXItcHQ="); // "owner-pt"

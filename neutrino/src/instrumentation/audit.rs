@@ -88,7 +88,7 @@ async fn append_audit_row(
         actor.to_string(),
         action.to_string(),
         secret_id.to_string(),
-        parent_secret_rid,
+        Some(parent_secret_rid),
         version,
         audit_outcome(outcome),
         error_message.to_string(),

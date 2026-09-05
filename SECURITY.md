@@ -30,20 +30,19 @@ Out of scope: vulnerabilities solely in third-party dependencies unless this pro
 ## Vault authorization
 
 Gauge permissions (`SecretsRead` / `SecretsReveal` / …) are **necessary but not
-sufficient** for cross-secret access. Product vault APIs enforce
-[`VaultAccessContext`](neutrino/src/vault_authz.rs):
+sufficient** for cross-secret access. Product vault APIs enforce per-secret Gauge
+grants on the store's request actor (`actor_can_secret` / Valence privacy):
 
-- Owner match via `owner_subject_json.actor`
-- Optional principal grants in `owner_subject_json.grants` (minimal ACL scaffolding
-  until a dedicated grant UI/store ships)
-- Or an allowed scope prefix (Super User break-glass uses `"/"`)
+- Owners-group membership from `ensure_secret_permission_bundle` after put
+- Explicit per-secret action grants (`View` / `Reveal` / `Edit` / `Delete`)
+- Super User (`super_user_group`) as unconditional break-glass
 
-Ordinary `SecretsReveal` holders without owner/grant/prefix match are **denied**
+Ordinary `SecretsReveal` holders without a per-secret Reveal grant are **denied**
 (fail closed). The ACL manage page remains a placeholder for fine-grained editing.
 
-`put_or_reuse` on an existing `name`+`scope_path` requires Edit (Gauge) or the same
-owner/grant/prefix bridge before decrypt/rotate — `CreateNeutrinoSecrets` alone
-does not authorize overwriting another principal's row.
+`put_or_reuse` on an existing `name`+`scope_path` requires Edit (Gauge) before
+decrypt/rotate — `CreateNeutrinoSecrets` alone does not authorize overwriting
+another principal's row.
 
 Vault product server functions keep the **session Valence** after the Gauge
 permission gate and drive ORM access under that actor (no mid-request

@@ -12,7 +12,7 @@ use gauge::resource_permissions::{
     normalize_id_fragment, permission_name, ResourceAction, ResourceKind,
 };
 use neutrino::vault::{
-    create_vault_secret, reveal_vault_secret, store_from_valence_for_request, VaultAccessContext,
+    create_vault_secret, reveal_vault_secret, store_from_valence_for_request,
 };
 use neutrino::{assert_neutrino_catalog_seeded, create_initial_neutrino_groups, NeutrinoError};
 use valence::{
@@ -119,7 +119,6 @@ async fn operators_group_member_denied_without_per_secret_grant_sad() {
     let err = reveal_vault_secret(
         &op_store,
         row.id,
-        &VaultAccessContext::owner_only("user:operator"),
     )
     .await
     .expect_err("operators umbrella must not reveal without per-secret grant");

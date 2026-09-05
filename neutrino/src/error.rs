@@ -19,7 +19,7 @@ pub enum NeutrinoError {
         /// Valence secret id (safe to log).
         id: String,
     },
-    /// Caller failed a Gauge or [`crate::vault_authz`] check.
+    /// Caller failed a Gauge per-secret permission check.
     AccessDenied {
         /// Operation label (e.g. `reveal`, `create`, `delete`).
         operation: &'static str,

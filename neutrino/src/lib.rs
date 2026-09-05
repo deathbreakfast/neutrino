@@ -13,7 +13,7 @@
 //! | Trait + request types | [`secret_store`] |
 //! | Valence-backed store | [`ValenceSealedStore`] / [`sealed_store`] (feature `ssr`) |
 //! | Product / UI vault API | [`vault`] (feature `ssr`) |
-//! | Owner / scope-prefix bridge | [`vault_authz`] (feature `ssr`) |
+//! | Gauge per-secret authz | [`actor_can_secret`], [`ensure_secret_permission_bundle`] |
 //! | Gauge bootstrap + create gate | [`create_initial_neutrino_groups`], [`CREATE_NEUTRINO_SECRETS`] |
 //! | Master key env | [`key_source`] / [`MasterKeyError`] |
 //! | Bootstrap env classification / seed | [`bootstrap_trust`], [`bootstrap_seeder`] |
@@ -28,8 +28,7 @@
 //!    `request_actor` for audit. Use [`ValenceSealedStore`] / [`secret_store::SecretStore`] from
 //!    boot jobs and host seeders (not a mid-request elevate from a user session).
 //! 2. **Product vault** — [`store_from_valence_for_request`] + [`vault`] helpers with
-//!    session Valence (Valence privacy enforces Gauge per-secret grants). Legacy
-//!    [`VaultAccessContext`] applies only where Gauge bundles were skipped.
+//!    session Valence (Valence privacy and Gauge per-secret grants on the request actor).
 //! 3. **Admin UI** — Higgs wrappers in `neutrino-app` over the vault lane.
 //!
 //! ## Features
@@ -64,7 +63,7 @@
 //!   [Get started](#control-plane-secret-lane).
 //!
 //! Product vault HTTP-facing helpers live in [`vault`]; per-secret Gauge checks use
-//! [`vault_authz`]. Low-level seal/unseal is in [`crypto`]. Backend selection uses
+//! [`actor_can_secret`]. Low-level seal/unseal is in [`crypto`]. Backend selection uses
 //! [`secret_backend`]; env key classification uses [`bootstrap_trust`].
 //!
 //! ## Getting started
@@ -104,13 +103,13 @@
 //! ```
 //!
 //! Product vault (UI / session lane) uses [`store_from_valence_for_request`] and
-//! [`reveal_vault_secret`] with [`VaultAccessContext`]. Match [`NeutrinoError`] at the
-//! host edge (`NotFound` / `AccessDenied` / `Validation` / …).
+//! [`reveal_vault_secret`] (authorization comes from the store's request actor). Match
+//! [`NeutrinoError`] at the host edge (`NotFound` / `AccessDenied` / `Validation` / …).
 //!
 //! ```ignore
 //! use neutrino::{
 //!     create_vault_secret, reveal_vault_secret, store_from_valence_for_request,
-//!     NeutrinoError, VaultAccessContext,
+//!     NeutrinoError,
 //! };
 //!
 //! let store = store_from_valence_for_request(system_orm_valence, "user:alice");
@@ -122,8 +121,7 @@
 //!     "correct-horse-battery-staple".into(),
 //!     "user:alice".into(),
 //! ).await?;
-//! let access = VaultAccessContext::owner_only("user:alice");
-//! match reveal_vault_secret(&store, secret_id, &access).await {
+//! match reveal_vault_secret(&store, secret_id).await {
 //!     Ok(r) => { let _ = r.plaintext_b64; }
 //!     Err(NeutrinoError::NotFound { .. }) => { /* 404 */ }
 //!     Err(NeutrinoError::AccessDenied { .. }) => { /* 403 */ }
@@ -292,9 +290,10 @@
 //!
 //! ## Delete secret
 //!
-//! Delete removes the secret row, version ciphertext (Valence cascade), and the Gauge
-//! per-secret bundle via `gauge::delete_resource_permission_bundle`. Umbrella groups, shared
-//! principals, `CreateNeutrinoSecrets`, and audit rows remain.
+//! Delete removes the secret row and version ciphertext via Valence
+//! [`Model::delete_now`](valence::Model::delete_now) (synchronous DAG), then tears down the
+//! Gauge per-secret bundle. Umbrella groups, shared principals, `CreateNeutrinoSecrets`,
+//! and audit rows remain.
 //!
 //! **Prerequisites:** authorized Delete (or System) actor; existing secret id.
 //!
@@ -421,8 +420,6 @@ pub mod sealed_store;
 #[cfg(feature = "ssr")]
 pub mod vault;
 #[cfg(feature = "ssr")]
-pub mod vault_authz;
-#[cfg(feature = "ssr")]
 pub(crate) mod vault_gauge;
 
 pub mod audit;
@@ -460,10 +457,8 @@ pub use secret_store::{SecretId, SecretRef, SecretVersionId};
 pub use vault::{
     create_vault_secret, delete_vault_secret, list_vault_secrets, neutrino_vault_ping,
     reveal_vault_secret, rotate_vault_secret, store_from_valence, store_from_valence_for_request,
-    RevealedVaultSecret, VaultAccessContext, VaultSecretRow,
+    RevealedVaultSecret, VaultSecretRow,
 };
-#[cfg(feature = "ssr")]
-pub use vault_authz::{can_access_secret, ensure_can_access_secret};
 #[cfg(feature = "ssr")]
 pub use vault_gauge::{
     actor_can_secret, assert_neutrino_catalog_seeded, create_initial_neutrino_groups,
