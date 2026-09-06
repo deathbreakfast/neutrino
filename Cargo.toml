@@ -103,7 +103,7 @@ spectra-codegen = { package = "spectra-codegen", git = "https://github.com/unifi
 neutrino-crate = { path = "neutrino", package = "neutrino", default-features = false }
 neutrino = { path = "neutrino", default-features = false }
 neutrino-spectra-telemetry = { path = "neutrino-spectra-telemetry" }
-gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "feat/delete-now", default-features = false }
+gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main", default-features = false }
 
 # Server / data
 serde = { version = "1", features = ["derive"] }
@@ -177,4 +177,4 @@ orbital-history = { git = "https://github.com/unified-field-dev/orbital", branch
 
 # Until ActorId / ParentResourceEditPolicy land on uf-dev gauge main.
 [patch."https://github.com/unified-field-dev/gauge"]
-gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "feat/delete-now" }
+gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main" }
