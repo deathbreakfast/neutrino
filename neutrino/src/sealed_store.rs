@@ -23,14 +23,13 @@ use crate::instrumentation::{
 };
 use crate::key_source::master_key_from_env;
 use crate::secret_store::{PutSecretRequest, RevealedSecret, SecretId, SecretRef, SecretStore};
-use crate::vault_authz::{ensure_can_access_secret, VaultAccessContext};
 use crate::vault_gauge::{
-    actor_can_secret, auth_valence_for_store, delete_secret_permission_bundle,
+    auth_valence_for_store, delete_secret_permission_bundle, ensure_actor_can_secret,
     ensure_can_create_secret, ensure_secret_permission_bundle, maintainer_actor_for_put,
 };
 use gauge::resource_permissions::ResourceAction;
 
-/// Non-sensitive row for vault listings (no ciphertext).
+/// Non-sensitive row for vault listings (no ciphertext, no owner subject).
 #[derive(Debug, Clone)]
 pub struct ListedSecret {
     /// Secret id.
@@ -45,19 +44,23 @@ pub struct ListedSecret {
     pub current_version: i64,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
-    /// Owner / grant JSON used for per-secret authz.
-    pub owner_subject_json: String,
 }
 
 /// All [`NeutrinoSecret`] rows (metadata only), sorted by `created_at` ascending.
 ///
-/// Returns every secret's metadata; `owner_subject_json` is included for vault-layer
-/// authz bridges but must not appear in product list DTOs ([`crate::vault::VaultSecretRow`]).
-pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>> {
+/// When `scope_prefix` is `None` or trims empty, returns every secret's metadata.
+/// Otherwise keeps rows whose `scope_path` matches via
+/// [`crate::scope_path_matches_prefix`]. Owner subject JSON is intentionally omitted so
+/// product list DTOs cannot leak it by field copy (see [`crate::vault::VaultSecretRow`]).
+pub async fn list_secrets(
+    valence: &Valence,
+    scope_prefix: Option<&str>,
+) -> NeutrinoResult<Vec<ListedSecret>> {
     let mut rows: Vec<NeutrinoSecret> = NeutrinoSecret::query(valence)
         .await
         .map_err(|e| NeutrinoError::service("valence", e))?;
     rows.sort_by_key(|r| *r.created_at());
+    let prefix = scope_prefix.map(str::trim).filter(|p| !p.is_empty());
     Ok(rows
         .into_iter()
         .map(|r| ListedSecret {
@@ -70,21 +73,12 @@ pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>
             kind: r.kind().clone(),
             current_version: *r.current_version(),
             created_at: *r.created_at(),
-            owner_subject_json: owner_subject_wire(r.owner_subject_json()),
+        })
+        .filter(|r| match prefix {
+            None => true,
+            Some(p) => crate::scope_path_matches_prefix(&r.scope_path, p),
         })
         .collect())
-}
-
-/// Wire form for [`crate::vault_authz`] (JSON object text).
-///
-/// SQLite read/update paths sometimes surface the document as a JSON string
-/// scalar (possibly nested). Unwrap until we have an object/array or a plain
-/// actor label.
-fn owner_subject_wire(v: &serde_json::Value) -> String {
-    match normalize_owner_subject_value(v.clone()) {
-        serde_json::Value::Null => "{}".to_string(),
-        other => serde_json::to_string(&other).unwrap_or_else(|_| "{}".to_string()),
-    }
 }
 
 fn normalize_owner_subject_value(v: serde_json::Value) -> serde_json::Value {
@@ -146,26 +140,13 @@ fn audit_append_must_succeed(action: &'static str) -> bool {
 /// Gate for `put_or_reuse` when a name+scope row already exists (decrypt / rotate).
 ///
 /// Create permission alone must not authorize overwriting another principal's secret.
-/// System / Super User / per-secret Edit, or owner/grant/prefix via
-/// [`VaultAccessContext`], may proceed — same OR story as vault rotate.
+/// System / Super User / per-secret Edit may proceed — same story as vault rotate.
 async fn ensure_may_reuse_or_rotate_existing(
     store: &ValenceSealedStore,
     secret_id: &str,
-    owner_subject_json: &str,
-    scope_path: &str,
 ) -> NeutrinoResult<()> {
     let auth_v = auth_valence_for_store(store);
-    if actor_can_secret(&auth_v, secret_id, ResourceAction::Edit).await? {
-        return Ok(());
-    }
-    let label = store
-        .request_actor
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| audit_actor_from_valence(store.valence.as_ref()));
-    let access = VaultAccessContext::owner_only(label);
-    ensure_can_access_secret(&access, owner_subject_json, scope_path)
+    ensure_actor_can_secret(&auth_v, secret_id, ResourceAction::Edit).await
 }
 
 async fn emit_access(
@@ -235,10 +216,11 @@ async fn emit_access(
 
 /// Production store: encrypts with `NEUTRINO_MASTER_KEY`, persists via Valence models.
 pub struct ValenceSealedStore {
-    /// Valence handle used for all model reads/writes and audit event appends.
+    /// Valence handle used for model reads/writes and denial audit appends.
     ///
     /// Vault server fns keep this as **system** Valence so ORM privacy
-    /// (`SYSTEM_ONLY`) succeeds; human attribution uses [`Self::request_actor`].
+    /// (`SYSTEM_ONLY`) succeeds and denial audits can append without mid-request
+    /// elevation; human attribution uses [`Self::request_actor`].
     pub valence: Arc<Valence>,
     /// Authenticated request actor label for audit/telemetry.
     /// When `None`, audit falls back to [`Self::valence`]'s actor.
@@ -313,7 +295,7 @@ impl SecretStore for ValenceSealedStore {
         .map_err(|e| NeutrinoError::service("valence", e))?;
 
         if let Err(e) = NeutrinoSecretVersion::create(ver_row, self.valence.as_ref()).await {
-            let _ = NeutrinoSecret::delete(persisted_id.as_str(), self.valence.as_ref()).await;
+            let _ = NeutrinoSecret::delete_now(persisted_id.as_str(), self.valence.as_ref()).await;
             let _ =
                 delete_secret_permission_bundle(self.valence.as_ref(), persisted_id.as_str()).await;
             return Err(NeutrinoError::service("valence", e));
@@ -378,14 +360,7 @@ impl SecretStore for ValenceSealedStore {
             )
         })?;
         let sid = extract_id_from_record(rec).map_err(|e| NeutrinoError::service("valence", e))?;
-        let owner_json = owner_subject_wire(existing.owner_subject_json());
-        ensure_may_reuse_or_rotate_existing(
-            self,
-            sid.as_str(),
-            owner_json.as_str(),
-            existing.scope_path().as_str(),
-        )
-        .await?;
+        ensure_may_reuse_or_rotate_existing(self, sid.as_str()).await?;
         let id = SecretId(sid);
         let revealed = self.get(&id).await?;
         if revealed.plaintext.as_slice() == req.plaintext.as_slice() {
@@ -475,9 +450,13 @@ impl SecretStore for ValenceSealedStore {
         )
         .await?;
 
-        // Rows are removed in `vault::finalize_secret_deletion` (deletion DAG).
-        // Do not ORM-delete or tear down Gauge grants here — session Valence
-        // fails version cascades after the permission bundle is removed.
+        // Sync DAG delete while Gauge grants still authorize version CascadeDelete;
+        // then tear down the per-secret permission bundle.
+        // Use `delete_now` (not queued `delete`) so list/reveal see the row gone in this request.
+        NeutrinoSecret::delete_now(sid, self.valence.as_ref())
+            .await
+            .map_err(|e| NeutrinoError::service("delete", e))?;
+        delete_secret_permission_bundle(self.valence.as_ref(), sid).await?;
         Ok(())
     }
 
@@ -548,7 +527,7 @@ impl SecretStore for ValenceSealedStore {
             .set_updated_at(now)
             .map_err(|e| NeutrinoError::service("rotate", e))?
             // Re-assert owner as a JSON object so SQLite update paths that
-            // string-wrap Json scalars cannot break the authz compat bridge.
+            // string-wrap Json scalars stay stable.
             .set_owner_subject_json(normalize_owner_subject_value(
                 secret.owner_subject_json().clone(),
             ))

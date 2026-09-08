@@ -30,24 +30,37 @@ Out of scope: vulnerabilities solely in third-party dependencies unless this pro
 ## Vault authorization
 
 Gauge permissions (`SecretsRead` / `SecretsReveal` / …) are **necessary but not
-sufficient** for cross-secret access. Product vault APIs enforce
-[`VaultAccessContext`](neutrino/src/vault_authz.rs):
+sufficient** for cross-secret access. Product vault APIs enforce per-secret Gauge
+grants on the store's request actor (`actor_can_secret` / Valence privacy):
 
-- Owner match via `owner_subject_json.actor`
-- Optional principal grants in `owner_subject_json.grants` (minimal ACL scaffolding
-  until a dedicated grant UI/store ships)
-- Or an allowed scope prefix (Super User break-glass uses `"/"`)
+- Owners-group membership from `ensure_secret_permission_bundle` after put
+- Explicit per-secret action grants (`View` / `Reveal` / `Edit` / `Delete`)
+- Super User (`super_user_group`) as unconditional break-glass
 
-Ordinary `SecretsReveal` holders without owner/grant/prefix match are **denied**
+Ordinary `SecretsReveal` holders without a per-secret Reveal grant are **denied**
 (fail closed). The ACL manage page remains a placeholder for fine-grained editing.
 
-`put_or_reuse` on an existing `name`+`scope_path` requires Edit (Gauge) or the same
-owner/grant/prefix bridge before decrypt/rotate — `CreateNeutrinoSecrets` alone
-does not authorize overwriting another principal's row.
+`put_or_reuse` on an existing `name`+`scope_path` requires Edit (Gauge) before
+decrypt/rotate — `CreateNeutrinoSecrets` alone does not authorize overwriting
+another principal's row.
 
-Vault `#[server]` wrappers use `Higgs::unsafe_system_valence` for Neutrino ORM
-(`SYSTEM_ONLY` schemas) after the Gauge permission gate, with request-actor audit
-via `store_from_valence_for_request`.
+Vault product server functions keep the **session Valence** after the Gauge
+permission gate and drive ORM access under that actor (no mid-request
+`unsafe_system_valence`). Request-actor audit labels come from
+`store_from_valence_for_request`. Product-surface tests forbid System elevation
+in the live vault wrappers.
+
+### Action verification (Tier A)
+
+`reveal_vault_secret`, `rotate_vault_secret`, `delete_vault_secret`, and
+`create_vault_secret` require a recent TOTP step-up (session sudo window) via
+`#[uf_product_macros::server(..., step_up)]` in addition to Gauge coarse
+permissions and per-secret grants. Reveal always takes an explicit `totp_code`
+and runs `verify_fresh_totp` (`step_up = "fresh"`), so a valid window alone is
+not enough — including Super User break-glass. `list_vault_secrets` and
+`neutrino_vault_ping` stay window-free. `list_vault_secrets` accepts an optional
+`scope_prefix` that narrows browsable metadata by path; omit it for the full list.
+Prefix filtering is not a Gauge View check — coarse `SecretsRead` still applies.
 
 ## Master key
 
@@ -69,6 +82,15 @@ rows are required for mutating vault operations (`put`, `delete`, `rotate`). If
 audit append fails, the API returns an error (fail closed). Read paths (`get`,
 `reveal`) log the failure and continue so availability is not blocked by audit
 storage outages.
+
+Denial-path audit rows require an **already-System** Valence sink on
+[`ValenceSealedStore`](neutrino/src/sealed_store.rs) (host boot). 
+`append_denial_audit_event` refuses mid-request elevation — denied session actors
+cannot forge the chain via `defer_to_edge` create. Success-path audits keep the
+session actor.
+
+`ListedSecret` omits `owner_subject_json` so product list DTOs cannot leak owner
+subject by field copy (`tests/no_elevate_path_gate.rs`).
 
 ## Client reveal transport
 

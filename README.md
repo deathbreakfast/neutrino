@@ -35,7 +35,7 @@ neutrino-spectra-telemetry = { git = "https://github.com/unified-field-dev/neutr
 Two lanes after `create_initial_neutrino_groups`:
 
 1. **Control-plane seal** — System ORM Valence + `request_actor` audit (`ValenceSealedStore` / `SecretStore`)
-2. **Product vault** — `store_from_valence_for_request` + `vault::*` with `VaultAccessContext` (UI / session)
+2. **Product vault** — `store_from_valence_for_request` + `vault::*` (UI / session; Gauge per-secret authz)
 
 Control-plane seal (SSR):
 
@@ -90,7 +90,7 @@ Copy `Cargo.toml` + `main.rs` from the host README. More examples:
 
 ## Security
 
-Vault authz (Gauge + `VaultAccessContext`), master-key handling, and reporting:
+Vault authz (Gauge per-secret + Valence privacy), master-key handling, and reporting:
 [`SECURITY.md`](SECURITY.md). Report vulnerabilities privately — do not open a
 public issue for security-sensitive reports.
 
@@ -138,5 +138,5 @@ else should migrate into the sealed store — see crate-root rustdoc and
 
 **How does Gauge fit in?** Call `create_initial_neutrino_groups` at host bootstrap.
 Create is gated by System or `CreateNeutrinoSecrets`; list/reveal/rotate/delete prefer
-per-secret Gauge permissions with `VaultAccessContext` as a scope-prefix bridge.
+per-secret Gauge permissions enforced via Valence privacy policies.
 

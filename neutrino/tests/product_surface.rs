@@ -159,6 +159,15 @@ fn verified_guard_drop_auth_sad_path() {
     );
 }
 
+/// Attribute window immediately before `pub async fn {name}(`.
+fn server_fn_attr_window<'a>(server: &'a str, fn_name: &str) -> &'a str {
+    let needle = format!("pub async fn {fn_name}(");
+    let start = server
+        .find(&needle)
+        .unwrap_or_else(|| panic!("missing fn `{fn_name}`"));
+    &server[start.saturating_sub(220)..start]
+}
+
 #[test]
 fn vault_server_permissions_happy_path() {
     let Some(server) = read_app("server/mod.rs") else {
@@ -174,16 +183,77 @@ fn vault_server_permissions_happy_path() {
     ] {
         let (fn_name, perm) = pair;
         assert!(server.contains(fn_name), "server missing `{fn_name}`");
-        let start = server
-            .find(&format!("pub async fn {fn_name}"))
-            .unwrap_or_else(|| panic!("missing fn `{fn_name}`"));
-        let window_start = start.saturating_sub(200);
-        let window = &server[window_start..start];
+        let window = server_fn_attr_window(&server, fn_name);
         assert!(
             window.contains(&format!(r#"permission = "{perm}""#)),
             "`{fn_name}` must carry permission = \"{perm}\""
         );
     }
+}
+
+#[test]
+fn vault_mutations_require_step_up_happy_path() {
+    let Some(server) = read_app("server/mod.rs") else {
+        return;
+    };
+    // TM-12: window step-up on create / rotate / delete.
+    for fn_name in [
+        "create_vault_secret",
+        "rotate_vault_secret",
+        "delete_vault_secret",
+    ] {
+        let window = server_fn_attr_window(&server, fn_name);
+        assert!(
+            window.contains("step_up"),
+            "`{fn_name}` must carry `step_up` (TM-12)"
+        );
+        assert!(
+            !window.contains(r#"step_up = "fresh""#),
+            "`{fn_name}` uses window step-up, not fresh"
+        );
+    }
+}
+
+#[test]
+fn reveal_vault_secret_requires_fresh_step_up_and_totp_happy_path() {
+    let Some(server) = read_app("server/mod.rs") else {
+        return;
+    };
+    let window = server_fn_attr_window(&server, "reveal_vault_secret");
+    assert!(
+        window.contains(r#"step_up = "fresh""#),
+        "reveal must use step_up = \"fresh\" (TM-12)"
+    );
+    let start = server
+        .find("pub async fn reveal_vault_secret(")
+        .expect("reveal_vault_secret");
+    let body = &server[start..(start + 900).min(server.len())];
+    assert!(body.contains("totp_code"), "reveal must take `totp_code`");
+    assert!(
+        body.contains("verify_fresh_totp"),
+        "reveal must call verify_fresh_totp"
+    );
+}
+
+#[test]
+fn list_vault_secrets_must_not_require_step_up_sad_path() {
+    let Some(server) = read_app("server/mod.rs") else {
+        return;
+    };
+    let window = server_fn_attr_window(&server, "list_vault_secrets");
+    assert!(
+        window.contains(r#"permission = "SecretsRead""#),
+        "list must stay SecretsRead"
+    );
+    assert!(
+        !window.contains("step_up"),
+        "list_vault_secrets must not carry step_up (TM-12)"
+    );
+    let ping = server_fn_attr_window(&server, "neutrino_vault_ping");
+    assert!(
+        !ping.contains("step_up"),
+        "neutrino_vault_ping must not carry step_up"
+    );
 }
 
 #[test]
@@ -286,7 +356,12 @@ fn acl_placeholder_page_happy_path() {
     let Some(page) = read_app("pages/acl_manage.rs") else {
         return;
     };
-    for needle in ["AclManagePage", "Secret ACLs", "ACL matrix UI"] {
+    for needle in [
+        "AclManagePage",
+        "Secret access grants",
+        "grant_secret_action",
+        "list_secret_grants",
+    ] {
         assert!(page.contains(needle), "AclManagePage missing `{needle}`");
     }
 }

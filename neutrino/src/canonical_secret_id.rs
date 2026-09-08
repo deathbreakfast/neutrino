@@ -55,23 +55,14 @@ mod tests {
 
     #[test]
     fn colliding_raw_ids_produce_distinct_permission_fragments() {
-        use gauge::resource_permissions::{
-            normalize_id_fragment, permission_name, ResourceAction, ResourceKind,
-        };
+        use crate::vault_gauge::NEUTRINO_SECRET;
+        use gauge::resource_permissions::{normalize_id_fragment, permission_name, ResourceAction};
         let a = normalize_id_fragment("abc-123");
         let b = normalize_id_fragment("abc_123");
         assert_ne!(a, b, "digest suffix must separate sanitized collisions");
         assert_ne!(
-            permission_name(
-                ResourceKind::NeutrinoSecret,
-                "abc-123",
-                ResourceAction::Reveal
-            ),
-            permission_name(
-                ResourceKind::NeutrinoSecret,
-                "abc_123",
-                ResourceAction::Reveal
-            ),
+            permission_name(NEUTRINO_SECRET, "abc-123", ResourceAction::Reveal),
+            permission_name(NEUTRINO_SECRET, "abc_123", ResourceAction::Reveal),
         );
     }
 }

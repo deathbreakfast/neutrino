@@ -14,7 +14,7 @@ use neutrino::instrumentation::set_audit_append_fail_for_tests;
 use neutrino::secret_store::{PutSecretRequest, SecretId, SecretStore};
 use neutrino::vault::{
     create_vault_secret, delete_vault_secret, reveal_vault_secret, rotate_vault_secret,
-    store_from_valence, VaultAccessContext,
+    store_from_valence,
 };
 use neutrino::{NeutrinoError, ValenceSealedStore};
 use tokio::sync::{Mutex, MutexGuard};
@@ -80,10 +80,6 @@ fn store(v: Valence) -> ValenceSealedStore {
     store_from_valence(v)
 }
 
-fn access(actor: &str) -> VaultAccessContext {
-    VaultAccessContext::owner_only(actor)
-}
-
 #[tokio::test]
 async fn reveal_at_version_archived_denied_active_allowed() {
     let (v, _audit_hook_guard) = test_valence().await;
@@ -99,15 +95,9 @@ async fn reveal_at_version_archived_denied_active_allowed() {
     .await
     .expect("create");
 
-    rotate_vault_secret(
-        &store,
-        created.id.clone(),
-        "version-two".into(),
-        "actor",
-        &access("actor"),
-    )
-    .await
-    .expect("rotate");
+    rotate_vault_secret(&store, created.id.clone(), "version-two".into(), "actor")
+        .await
+        .expect("rotate");
 
     let archived_err = store
         .reveal_at_version(&SecretId(created.id.clone()), 1)
@@ -128,7 +118,7 @@ async fn reveal_at_version_archived_denied_active_allowed() {
         .expect("active version reveal");
     assert_eq!(current.plaintext.as_slice(), b"version-two");
 
-    let via_vault = reveal_vault_secret(&store, created.id, &access("actor"))
+    let via_vault = reveal_vault_secret(&store, created.id)
         .await
         .expect("current via vault API");
     let got = B64
@@ -173,39 +163,27 @@ async fn vault_mutate_denied_when_audit_append_fails() {
     .expect("create with audit enabled");
 
     set_audit_append_fail_for_tests(true);
-    let delete_err = delete_vault_secret(&store, created.id.clone(), &access("actor"))
+    let delete_err = delete_vault_secret(&store, created.id.clone())
         .await
         .expect_err("delete must fail closed when audit append fails");
     assert!(delete_err
         .to_string()
         .contains("audit append disabled for test"));
 
-    let still_there = reveal_vault_secret(&store, created.id.clone(), &access("actor"))
+    let still_there = reveal_vault_secret(&store, created.id.clone())
         .await
         .expect("secret must remain when delete audit fails");
     assert!(!still_there.plaintext_b64.is_empty());
 
     set_audit_append_fail_for_tests(false);
-    let rotate_err = rotate_vault_secret(
-        &store,
-        created.id.clone(),
-        "rotated".into(),
-        "actor",
-        &access("actor"),
-    )
-    .await;
+    let rotate_err =
+        rotate_vault_secret(&store, created.id.clone(), "rotated".into(), "actor").await;
     assert!(rotate_err.is_ok(), "rotate with audit restored");
 
     set_audit_append_fail_for_tests(true);
-    let rotate_fail = rotate_vault_secret(
-        &store,
-        created.id,
-        "rotated-again".into(),
-        "actor",
-        &access("actor"),
-    )
-    .await
-    .expect_err("rotate must fail closed when audit append fails");
+    let rotate_fail = rotate_vault_secret(&store, created.id, "rotated-again".into(), "actor")
+        .await
+        .expect_err("rotate must fail closed when audit append fails");
     assert!(rotate_fail
         .to_string()
         .contains("audit append disabled for test"));
@@ -227,7 +205,7 @@ async fn vault_read_allowed_when_audit_append_fails() {
     .expect("create");
 
     set_audit_append_fail_for_tests(true);
-    let revealed = reveal_vault_secret(&store, created.id.clone(), &access("actor"))
+    let revealed = reveal_vault_secret(&store, created.id.clone())
         .await
         .expect("read should remain available when audit append fails");
     let got = B64

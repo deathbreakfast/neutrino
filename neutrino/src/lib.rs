@@ -4,7 +4,7 @@
 //! rows for seal/reveal/rotate/delete, and classifies which env keys may stay
 //! outside the vault during bootstrap. Enable `feature = "ssr"` for Valence-backed
 //! store and vault APIs; crypto helpers are always available. The Leptos admin UI
-//! lives in [neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app) (`neutrino-app`).
+//! lives in [neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app) (`neutrino-app`).
 //!
 //! ## Where to look
 //!
@@ -13,7 +13,7 @@
 //! | Trait + request types | [`secret_store`] |
 //! | Valence-backed store | [`ValenceSealedStore`] / [`sealed_store`] (feature `ssr`) |
 //! | Product / UI vault API | [`vault`] (feature `ssr`) |
-//! | Owner / scope-prefix bridge | [`vault_authz`] (feature `ssr`) |
+//! | Gauge per-secret authz | [`actor_can_secret`], [`ensure_secret_permission_bundle`] |
 //! | Gauge bootstrap + create gate | [`create_initial_neutrino_groups`], [`CREATE_NEUTRINO_SECRETS`] |
 //! | Master key env | [`key_source`] / [`MasterKeyError`] |
 //! | Bootstrap env classification / seed | [`bootstrap_trust`], [`bootstrap_seeder`] |
@@ -28,8 +28,7 @@
 //!    `request_actor` for audit. Use [`ValenceSealedStore`] / [`secret_store::SecretStore`] from
 //!    boot jobs and host seeders (not a mid-request elevate from a user session).
 //! 2. **Product vault** — [`store_from_valence_for_request`] + [`vault`] helpers with
-//!    session Valence (Valence privacy enforces Gauge per-secret grants). Legacy
-//!    [`VaultAccessContext`] applies only where Gauge bundles were skipped.
+//!    session Valence (Valence privacy and Gauge per-secret grants on the request actor).
 //! 3. **Admin UI** — Higgs wrappers in `neutrino-app` over the vault lane.
 //!
 //! ## Features
@@ -56,6 +55,10 @@
 //! - **Secret access model** — Who can browse, reveal, edit, and delete a secret,
 //!   what Super User can always do, and which Gauge objects a new secret creates.
 //!   Read this before you store your first credential. [Get started](#secret-access-model).
+//! - **Scope-prefix list filter** — Optional `scope_prefix` on [`list_secrets`] /
+//!   [`list_vault_secrets`] keeps the browsable metadata list but returns only rows
+//!   under that path (path-segment safe). Products deep-link `/secrets?scope_prefix=…`
+//!   without dumping the whole vault. [Get started](#filter-vault-list-by-scope-prefix).
 //! - **Per-secret access grants** — Give one teammate access to one secret, by maintainer
 //!   group for full rights or by action name for least privilege.
 //!   [Get started](#grant-access-to-a-secret).
@@ -64,7 +67,7 @@
 //!   [Get started](#control-plane-secret-lane).
 //!
 //! Product vault HTTP-facing helpers live in [`vault`]; per-secret Gauge checks use
-//! [`vault_authz`]. Low-level seal/unseal is in [`crypto`]. Backend selection uses
+//! [`actor_can_secret`]. Low-level seal/unseal is in [`crypto`]. Backend selection uses
 //! [`secret_backend`]; env key classification uses [`bootstrap_trust`].
 //!
 //! ## Getting started
@@ -104,13 +107,13 @@
 //! ```
 //!
 //! Product vault (UI / session lane) uses [`store_from_valence_for_request`] and
-//! [`reveal_vault_secret`] with [`VaultAccessContext`]. Match [`NeutrinoError`] at the
-//! host edge (`NotFound` / `AccessDenied` / `Validation` / …).
+//! [`reveal_vault_secret`] (authorization comes from the store's request actor). Match
+//! [`NeutrinoError`] at the host edge (`NotFound` / `AccessDenied` / `Validation` / …).
 //!
 //! ```ignore
 //! use neutrino::{
 //!     create_vault_secret, reveal_vault_secret, store_from_valence_for_request,
-//!     NeutrinoError, VaultAccessContext,
+//!     NeutrinoError,
 //! };
 //!
 //! let store = store_from_valence_for_request(system_orm_valence, "user:alice");
@@ -122,8 +125,7 @@
 //!     "correct-horse-battery-staple".into(),
 //!     "user:alice".into(),
 //! ).await?;
-//! let access = VaultAccessContext::owner_only("user:alice");
-//! match reveal_vault_secret(&store, secret_id, &access).await {
+//! match reveal_vault_secret(&store, secret_id).await {
 //!     Ok(r) => { let _ = r.plaintext_b64; }
 //!     Err(NeutrinoError::NotFound { .. }) => { /* 404 */ }
 //!     Err(NeutrinoError::AccessDenied { .. }) => { /* 403 */ }
@@ -170,6 +172,10 @@
 //! narrowing, `neutrino.secret.viewers` / `.operators` no longer grant per-secret access —
 //! use explicit grants or the per-secret owners group (`rp_owners_neutrino_secret_{id}`).
 //!
+//! Optional [`list_vault_secrets`] `scope_prefix` only narrows which metadata rows are
+//! returned; it is not a Gauge View check. Callers who omit the prefix still see the full
+//! browsable list.
+//!
 //! **Prerequisites:** `feature = "ssr"`, Gauge catalog seeded, session or System Valence.
 //!
 //! ```ignore
@@ -181,12 +187,46 @@
 //! assert!(allowed || !allowed);
 //! ```
 //!
-//! Failures return [`NeutrinoError::AccessDenied`]. Next: [grant access](#grant-access-to-a-secret).
+//! Failures return [`NeutrinoError::AccessDenied`]. Next: [filter vault list by scope prefix](#filter-vault-list-by-scope-prefix), or [grant access](#grant-access-to-a-secret).
+//!
+//! ## Filter vault list by scope prefix
+//!
+//! Product UIs (Finance feeds, Gluon providers) deep-link the Neutrino vault with a
+//! `scope_prefix` query so operators see credentials for one product path instead of
+//! every secret in the cell. Pass the same prefix into [`list_vault_secrets`] (or
+//! [`list_secrets`]); matching uses [`scope_path_matches_prefix`] so a prefix cannot
+//! accidentally include a sibling path segment.
+//!
+//! **Prerequisites:** `feature = "ssr"`, session Valence, coarse `SecretsRead` on the
+//! product server fn when calling through `neutrino-app`.
+//!
+//! ```ignore
+//! use neutrino::list_vault_secrets;
+//!
+//! let rows = list_vault_secrets(&session_v, Some("/finance/org_abc/feeds")).await?;
+//! assert!(rows.iter().all(|r| {
+//!     r.scope_path == "/finance/org_abc/feeds"
+//!         || r.scope_path.starts_with("/finance/org_abc/feeds/")
+//! }));
+//!
+//! let all = list_vault_secrets(&session_v, None).await?;
+//! assert!(all.len() >= rows.len());
+//! ```
+//!
+//! Empty or whitespace prefixes behave like `None` (full list). A prefix with no matching
+//! rows returns `Ok(vec![])` — not an error. Valence query failures still map to
+//! [`NeutrinoError`]. Next: [seal or put](#seal-or-put-secret) under that path, or open
+//! `/secrets?scope_prefix=…` in `neutrino-app`.
 //!
 //! ## Grant access to a secret
 //!
-//! Add the user to `rp_owners_neutrino_secret_{id}` for full maintainer rights, or grant a
+//! Per-secret access grants let you give one teammate rights to one Neutrino
+//! secret without opening the whole vault. Add them to
+//! `rp_owners_neutrino_secret_{id}` for full maintainer rights, or grant a
 //! single action name for least privilege.
+//!
+//! **Prerequisites:** `feature = "ssr"`, Gauge catalog seeded, a secret id you
+//! already sealed.
 //!
 //! ```ignore
 //! use gauge::service;
@@ -196,13 +236,20 @@
 //!
 //! ## Control-plane secret lane
 //!
-//! Jobs that start as `Actor::System` use [`ValenceSealedStore`] with System ORM Valence.
-//! `SecretStore::get` decrypts any id without a Gauge check — callers must only pass trusted ids.
+//! Boot jobs and background workers that start as `Actor::System` use
+//! [`ValenceSealedStore`] with System ORM Valence so seal/reveal can run outside a
+//! browser session. `SecretStore::get` decrypts any id without a Gauge check —
+//! callers must only pass trusted ids. Call this lane at worker startup or in a
+//! Chronon/Boson job after Gauge bootstrap, not mid-request from a session actor.
+//!
+//! **Prerequisites:** System Valence from process start, master key resolved,
+//! `feature = "ssr"`.
 //!
 //! ```ignore
 //! use neutrino::{ValenceSealedStore, secret_store::SecretStore};
 //! let store = ValenceSealedStore { valence: system_arc, request_actor: Some("service:boot".into()) };
-//! let _ = store.put_or_reuse(put_req).await?;
+//! let secret_ref = store.put_or_reuse(put_req).await?;
+//! assert!(!secret_ref.id.0.is_empty());
 //! ```
 //!
 //! ## Seal or put secret
@@ -292,25 +339,31 @@
 //!
 //! ## Delete secret
 //!
-//! Delete removes the secret row, version ciphertext (Valence cascade), and the Gauge
-//! per-secret bundle via `gauge::delete_resource_permission_bundle`. Umbrella groups, shared
-//! principals, `CreateNeutrinoSecrets`, and audit rows remain.
+//! Secret deletion is the permanent retirement path for a stored credential. It removes
+//! the secret row and version ciphertext via Valence
+//! [`Model::delete_now`](valence::Model::delete_now) (synchronous DAG), then tears down the
+//! Gauge per-secret bundle. Umbrella groups, shared principals, `CreateNeutrinoSecrets`,
+//! and audit rows remain.
 //!
 //! **Prerequisites:** authorized Delete (or System) actor; existing secret id.
 //!
 //! ```ignore
 //! use neutrino::secret_store::SecretStore;
+//! use gauge::resource_permissions::delete_resource_permission_bundle;
 //!
 //! let result = store.delete(&secret_ref.id).await;
 //! assert!(result.is_ok());
 //! let _: () = result?;
+//! // Bundle teardown runs inside delete; callers that tear down ACL alone use:
+//! // delete_resource_permission_bundle(&valence, …).await?;
 //! assert!(matches!(Ok::<(), ()>(()), Ok(())));
 //! ```
 //!
 //! Failures return [`NeutrinoError`] when the actor lacks Delete, the id is unknown,
 //! or the store write fails. Subsequent `get` / reveal calls also fail after a
-//! successful delete. Next: list remaining rows with [`list_secrets`], or return to
-//! [seal or put](#seal-or-put-secret).
+//! successful delete. Next: list remaining rows with [`list_secrets`] (`None` for the full
+//! vault, or a `scope_prefix` — [filter vault list](#filter-vault-list-by-scope-prefix)), or
+//! return to [seal or put](#seal-or-put-secret).
 //!
 //! ## Bootstrap env seed
 //!
@@ -415,11 +468,13 @@ mod privacy_policies;
 #[cfg(feature = "ssr")]
 mod schemas;
 #[cfg(feature = "ssr")]
+pub mod scope_prefix;
+#[cfg(feature = "chronon")]
+pub mod scripts;
+#[cfg(feature = "ssr")]
 pub mod sealed_store;
 #[cfg(feature = "ssr")]
 pub mod vault;
-#[cfg(feature = "ssr")]
-pub mod vault_authz;
 #[cfg(feature = "ssr")]
 pub(crate) mod vault_gauge;
 
@@ -447,9 +502,9 @@ pub use bootstrap_seeder::{
 };
 pub use bootstrap_trust::{classify_env_key, SecretLifecycleClass};
 pub use error::{NeutrinoError, NeutrinoResult};
-#[cfg(feature = "ssr")]
-pub use gauge::resource_permissions::CREATE_NEUTRINO_SECRETS;
 pub use key_source::{master_key_from_env, MasterKeyError};
+#[cfg(feature = "ssr")]
+pub use scope_prefix::scope_path_matches_prefix;
 #[cfg(feature = "ssr")]
 pub use sealed_store::{list_secrets, ListedSecret, ValenceSealedStore};
 pub use secret_backend::{
@@ -460,12 +515,11 @@ pub use secret_store::{SecretId, SecretRef, SecretVersionId};
 pub use vault::{
     create_vault_secret, delete_vault_secret, list_vault_secrets, neutrino_vault_ping,
     reveal_vault_secret, rotate_vault_secret, store_from_valence, store_from_valence_for_request,
-    RevealedVaultSecret, VaultAccessContext, VaultSecretRow,
+    RevealedVaultSecret, VaultSecretRow,
 };
-#[cfg(feature = "ssr")]
-pub use vault_authz::{can_access_secret, ensure_can_access_secret};
 #[cfg(feature = "ssr")]
 pub use vault_gauge::{
     actor_can_secret, assert_neutrino_catalog_seeded, create_initial_neutrino_groups,
-    ensure_secret_permission_bundle, NEUTRINO_SECRET_RESOURCE,
+    ensure_secret_permission_bundle, CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET,
+    NEUTRINO_SECRET_RESOURCE,
 };

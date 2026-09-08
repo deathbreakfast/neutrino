@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use neutrino::{
     create_vault_secret, list_vault_secrets, reveal_vault_secret, store_from_valence_for_request,
-    NeutrinoError, VaultAccessContext,
+    NeutrinoError,
 };
 use valence::{
     register_backend_logical_names, router_key, Actor, DatabaseBackend, DatabaseRouter,
@@ -74,9 +74,7 @@ async fn matrix_authenticated_user_browses_all_secrets_happy() {
     )
     .await
     .expect("create");
-    let bob_list = list_vault_secrets(&v, &VaultAccessContext::owner_only("user:bob"))
-        .await
-        .expect("list");
+    let bob_list = list_vault_secrets(&v, None).await.expect("list");
     assert!(bob_list.iter().any(|r| r.id == row.id));
 }
 
@@ -95,13 +93,9 @@ async fn matrix_stranger_reveal_denied_sad() {
     .await
     .expect("create");
     let bob_store = store_from_valence_for_request(v.clone(), "user:bob");
-    let err = reveal_vault_secret(
-        &bob_store,
-        row.id,
-        &VaultAccessContext::owner_only("user:bob"),
-    )
-    .await
-    .expect_err("stranger reveal");
+    let err = reveal_vault_secret(&bob_store, row.id)
+        .await
+        .expect_err("stranger reveal");
     assert!(matches!(err, NeutrinoError::AccessDenied { .. }));
 }
 
@@ -119,12 +113,8 @@ async fn matrix_creator_reveal_after_put_happy() {
     )
     .await
     .expect("create");
-    let revealed = reveal_vault_secret(
-        &store,
-        row.id,
-        &VaultAccessContext::owner_only("user:alice"),
-    )
-    .await
-    .expect("creator reveal via owners group seed");
+    let revealed = reveal_vault_secret(&store, row.id)
+        .await
+        .expect("creator reveal via owners group seed");
     assert!(!revealed.plaintext_b64.is_empty());
 }

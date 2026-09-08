@@ -1,4 +1,4 @@
-//! Per-secret authz, list filter, and audit attribution contracts.
+//! Per-secret Gauge authz, list browse, and audit attribution contracts.
 
 #![cfg(feature = "ssr")]
 #![allow(missing_docs)]
@@ -13,7 +13,7 @@ use base64::Engine;
 use neutrino::generated::NeutrinoSecretAuditEvent;
 use neutrino::vault::{
     create_vault_secret, delete_vault_secret, list_vault_secrets, reveal_vault_secret,
-    store_from_valence_for_request, VaultAccessContext,
+    store_from_valence_for_request,
 };
 use neutrino::NeutrinoError;
 use valence::{
@@ -68,11 +68,11 @@ async fn test_valence() -> Valence {
 }
 
 #[tokio::test]
-async fn reveal_denied_for_non_owner_without_scope_prefix_sad() {
+async fn reveal_denied_for_non_owner_without_grant_sad() {
     let v = test_valence().await;
-    let store = store_from_valence_for_request(v, "user:alice");
+    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
     let created = create_vault_secret(
-        &store,
+        &alice_store,
         "alice_secret".into(),
         "/team-a/db".into(),
         "password".into(),
@@ -82,8 +82,8 @@ async fn reveal_denied_for_non_owner_without_scope_prefix_sad() {
     .await
     .expect("create");
 
-    let bob = VaultAccessContext::owner_only("user:bob");
-    let err = reveal_vault_secret(&store, created.id.clone(), &bob)
+    let bob_store = store_from_valence_for_request(v, "user:bob");
+    let err = reveal_vault_secret(&bob_store, created.id)
         .await
         .expect_err("bob must not reveal alice secret");
     assert!(
@@ -98,29 +98,39 @@ async fn reveal_denied_for_non_owner_without_scope_prefix_sad() {
 }
 
 #[tokio::test]
-async fn reveal_allowed_with_matching_scope_prefix_happy_path() {
+async fn owner_reveal_happy_path_outsider_denied_sad() {
     let v = test_valence().await;
-    let store = store_from_valence_for_request(v, "user:alice");
+    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
     let created = create_vault_secret(
-        &store,
-        "scoped".into(),
-        "/gluon/provider_account/1".into(),
-        "token".into(),
-        "scoped-pt".into(),
+        &alice_store,
+        "owner_reveal_tm12".into(),
+        "/team-a/owner".into(),
+        "password".into(),
+        "owner-reveal-pt".into(),
         "user:alice".into(),
     )
     .await
     .expect("create");
 
-    let ops = VaultAccessContext {
-        actor_label: "user:ops".into(),
-        allowed_scope_prefixes: vec!["/gluon".into()],
-    };
-    let revealed = reveal_vault_secret(&store, created.id, &ops)
+    let revealed = reveal_vault_secret(&alice_store, created.id.clone())
         .await
-        .expect("ops with matching scope prefix");
+        .expect("owner reveal");
     let got = B64.decode(revealed.plaintext_b64.as_bytes()).expect("b64");
-    assert_eq!(got.as_slice(), b"scoped-pt");
+    assert_eq!(got.as_slice(), b"owner-reveal-pt");
+
+    let bob_store = store_from_valence_for_request(v, "user:bob");
+    let err = reveal_vault_secret(&bob_store, created.id)
+        .await
+        .expect_err("outsider must not reveal");
+    assert!(
+        matches!(
+            err,
+            NeutrinoError::AccessDenied {
+                operation: "access this secret"
+            }
+        ),
+        "got: {err:?}"
+    );
 }
 
 #[tokio::test]
@@ -148,9 +158,7 @@ async fn list_returns_all_secrets_without_owner_filter_happy_path() {
     .await
     .expect("create bob");
 
-    let alice_list = list_vault_secrets(&v, &VaultAccessContext::owner_only("user:alice"))
-        .await
-        .expect("list alice");
+    let alice_list = list_vault_secrets(&v, None).await.expect("list alice");
     assert!(alice_list.iter().any(|r| r.id == alice_row.id));
     assert!(
         alice_list.iter().any(|r| r.id == bob_row.id),
@@ -177,13 +185,9 @@ async fn reveal_audit_attributes_request_actor_not_system_happy_path() {
     .await
     .expect("create");
 
-    reveal_vault_secret(
-        &store,
-        created.id.clone(),
-        &VaultAccessContext::owner_only("user:alice"),
-    )
-    .await
-    .expect("reveal");
+    reveal_vault_secret(&store, created.id.clone())
+        .await
+        .expect("reveal");
 
     let events = NeutrinoSecretAuditEvent::query(&v)
         .await
@@ -210,9 +214,9 @@ async fn reveal_audit_attributes_request_actor_not_system_happy_path() {
 #[tokio::test]
 async fn delete_denied_for_non_owner_sad() {
     let v = test_valence().await;
-    let store = store_from_valence_for_request(v, "user:alice");
+    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
     let created = create_vault_secret(
-        &store,
+        &alice_store,
         "del".into(),
         "/scope/del".into(),
         "password".into(),
@@ -222,13 +226,10 @@ async fn delete_denied_for_non_owner_sad() {
     .await
     .expect("create");
 
-    let err = delete_vault_secret(
-        &store,
-        created.id,
-        &VaultAccessContext::owner_only("user:bob"),
-    )
-    .await
-    .expect_err("bob delete");
+    let bob_store = store_from_valence_for_request(v, "user:bob");
+    let err = delete_vault_secret(&bob_store, created.id)
+        .await
+        .expect_err("bob delete");
     assert!(
         matches!(
             err,

@@ -33,6 +33,11 @@ neutrino-spectra-telemetry = { workspace = true, optional = true }
 valence = { workspace = true, optional = true }
 gauge = { workspace = true, optional = true, default-features = false }
 lepton = { workspace = true, optional = true, default-features = false }
+chronon-coordinator = { workspace = true, optional = true }
+chronon-core = { workspace = true, optional = true }
+chronon-executor = { workspace = true, optional = true }
+chronon-coordinator-macros = { workspace = true, optional = true }
+chronon-valence-identity = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -43,6 +48,15 @@ ssr = [
     "dep:spectra",
     "dep:spectra-core",
     "dep:neutrino-spectra-telemetry",
+]
+# Chronon scripts (umbrella revoke migration, future jobs).
+chronon = [
+    "ssr",
+    "dep:chronon-coordinator",
+    "dep:chronon-core",
+    "dep:chronon-executor",
+    "dep:chronon-coordinator-macros",
+    "dep:chronon-valence-identity",
 ]
 # Optional Gauge RBAC integration tests — pulls lepton/gauge SSR graph.
 rbac-tests = ["ssr", "dep:gauge", "gauge/ssr", "dep:lepton", "lepton/ssr"]

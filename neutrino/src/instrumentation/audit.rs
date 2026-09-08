@@ -1,7 +1,7 @@
 //! Append tamper-evident Valence audit events for Neutrino secret operations.
 
 use chrono::{DateTime, Utc};
-use valence::{Actor, Model, RecordId, StringPredicate, Valence};
+use valence::{Model, RecordId, StringPredicate, Valence};
 
 use crate::audit::hash_event;
 use crate::error::{NeutrinoError, NeutrinoResult};
@@ -88,7 +88,7 @@ async fn append_audit_row(
         actor.to_string(),
         action.to_string(),
         secret_id.to_string(),
-        parent_secret_rid,
+        Some(parent_secret_rid),
         version,
         audit_outcome(outcome),
         error_message.to_string(),
@@ -126,7 +126,11 @@ pub async fn append_valence_audit_event(
     .await
 }
 
-/// Append a denial audit row via System Valence (denied actors cannot Update the parent secret).
+/// Append a denial audit row. Requires an already-System Valence (host-supplied sink).
+///
+/// Denied actors cannot Update the parent secret, so `defer_to_edge` create cannot
+/// succeed under the session actor. Callers must not mid-request elevate — pass the
+/// System handle constructed at store boot instead.
 pub async fn append_denial_audit_event(
     system_valence: &Valence,
     actor: &str,
@@ -135,15 +139,14 @@ pub async fn append_denial_audit_event(
     version: i64,
     error_message: &str,
 ) -> NeutrinoResult<()> {
-    let system = if system_valence.actor().is_system() {
-        system_valence.clone()
-    } else {
-        system_valence.with_actor(Actor::System {
-            operation: "neutrino_audit_denial".into(),
-        })
-    };
+    if !system_valence.actor().is_system() {
+        return Err(NeutrinoError::service(
+            "audit_denial",
+            anyhow::anyhow!("denial audit requires an already-System Valence sink"),
+        ));
+    }
     append_audit_row(
-        &system,
+        system_valence,
         actor,
         action,
         secret_id,

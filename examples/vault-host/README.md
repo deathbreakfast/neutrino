@@ -13,7 +13,7 @@ owner role gate without the SSR/WASM / Orbital graph. The oneshot path
 | **When to use** | First smoke of Neutrino sealed-store + authz in an embedded host |
 | **Command** | `CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=target-neutrino cargo run -p vault-host` |
 | **Success** | Stdout: `vault_host: OK — bootstrap → role gate → rotate/reveal` |
-| **Look next** | Mount guide in [neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app) rustdoc (`NeutrinoRoutes` + Gauge `Secrets*` grants) |
+| **Look next** | Mount guide in [neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app) rustdoc (`NeutrinoRoutes` + Gauge `Secrets*` grants) |
 
 **Open first:** [`src/main.rs`](src/main.rs)
 
@@ -44,7 +44,7 @@ let store = ValenceSealedStore {
 At host boot, call `create_initial_neutrino_groups` before product APIs that
 auto-ensure per-secret Gauge bundles. For Orbital UI mount steps (deps, hydrate,
 `NeutrinoPermission` grants), use the **Mount Neutrino routes** guide in
-[neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app)
+[neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app)
 (`cargo doc -p neutrino-app --features ssr`). Shell chrome (layout, fonts,
 Axum + Leptos boot) can start from
 [`shell-chrome-host`](https://github.com/unified-field-dev/unified-field-product/tree/main/examples/shell-chrome-host).
