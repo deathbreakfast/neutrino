@@ -4,7 +4,7 @@
 //! rows for seal/reveal/rotate/delete, and classifies which env keys may stay
 //! outside the vault during bootstrap. Enable `feature = "ssr"` for Valence-backed
 //! store and vault APIs; crypto helpers are always available. The Leptos admin UI
-//! lives in [neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app) (`neutrino-app`).
+//! lives in [neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app) (`neutrino-app`).
 //!
 //! ## Where to look
 //!

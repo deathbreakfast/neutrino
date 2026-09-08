@@ -2,12 +2,12 @@
 
 Re-run after code or doc changes. This workspace is the Neutrino product
 (`neutrino` sealed vault). The Leptos admin UI (`neutrino-app` / `NeutrinoRoutes`) lives
-in [neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app). Layer 1
+in [neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app). Layer 1
 covers the product-local vault API that backs `neutrino-app` server functions
 (`create_vault_secret`, `list_vault_secrets`, `reveal_vault_secret`,
 `rotate_vault_secret`, `delete_vault_secret`, `neutrino_vault_ping`), plus
 source-text UI surface contracts for `neutrino-app`. Playwright UI e2e lives in
-the [neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app) composer
+the [neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app) composer
 (`neutrino-uf-app-e2e`). No IsolatedLab `*-e2e` crate or cloud campaign suite is
 required for this product. Tests never log plaintext secret values.
 
@@ -73,7 +73,7 @@ or run `--all-targets` clippy on `neutrino`.
 
 Domain workspace (no `neutrino-app` package in this repository). `product_surface`
 asserts route and permission needles against
-[neutrino-app](https://github.com/deathbreakfast/neutrino-uf-app) sources without
+[neutrino-app](https://github.com/unified-field-dev/neutrino-uf-app) sources without
 compiling the UI graph:
 
 ```bash
@@ -156,12 +156,12 @@ authz/RBAC suites). Playwright UI e2e (Higgs `#[server]` + Secrets pages) runs
 from the composer:
 
 ```bash
-# neutrino-uf-app repo — see https://github.com/deathbreakfast/neutrino-uf-app/blob/main/docs/VERIFICATION.md
+# neutrino-uf-app repo — see https://github.com/unified-field-dev/neutrino-uf-app/blob/main/docs/VERIFICATION.md
 cargo leptos end-to-end --project neutrino-uf-app-e2e
 ```
 
 Host listens on `127.0.0.1:3160`. Scenario catalog:
-[neutrino-uf-app-e2e README](https://github.com/deathbreakfast/neutrino-uf-app/blob/main/neutrino-uf-app-e2e/README.md).
+[neutrino-uf-app-e2e README](https://github.com/unified-field-dev/neutrino-uf-app/blob/main/neutrino-uf-app-e2e/README.md).
 Domain `product_surface` needles are composition smoke only — they do not
 substitute for composer Playwright.
 

@@ -1045,7 +1045,7 @@ dependencies = [
 [[package]]
 name = "gauge"
 version = "0.1.0"
-source = "git+https://github.com/deathbreakfast/gauge?branch=main#30259c16ea7d99c3d8e0ec27f0e06b2c32e8f466"
+source = "git+https://github.com/unified-field-dev/gauge?branch=main#cad67f586e07bde75b192bb56e2c5cfa1a837980"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1619,7 +1619,7 @@ dependencies = [
 [[package]]
 name = "lepton"
 version = "0.1.0"
-source = "git+https://github.com/deathbreakfast/lepton?branch=main#094d696454965417c8711a921471b9abf15b487b"
+source = "git+https://github.com/unified-field-dev/lepton?branch=main#094d696454965417c8711a921471b9abf15b487b"
 dependencies = [
  "lepton-host-adapter",
 ]
@@ -1627,7 +1627,7 @@ dependencies = [
 [[package]]
 name = "lepton-host-adapter"
 version = "0.1.0"
-source = "git+https://github.com/deathbreakfast/lepton?branch=main#094d696454965417c8711a921471b9abf15b487b"
+source = "git+https://github.com/unified-field-dev/lepton?branch=main#094d696454965417c8711a921471b9abf15b487b"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1659,7 +1659,7 @@ dependencies = [
 [[package]]
 name = "lepton-identity"
 version = "0.1.0"
-source = "git+https://github.com/deathbreakfast/lepton?branch=main#094d696454965417c8711a921471b9abf15b487b"
+source = "git+https://github.com/unified-field-dev/lepton?branch=main#094d696454965417c8711a921471b9abf15b487b"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3906,7 +3906,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 [[package]]
 name = "uf-notifications-core"
 version = "0.3.0"
-source = "git+https://github.com/deathbreakfast/uf-notifications?branch=main#0e1fd0e04c217b5ea04b1a20757092b62e1b7feb"
+source = "git+https://github.com/unified-field-dev/uf-notifications?branch=main#0e1fd0e04c217b5ea04b1a20757092b62e1b7feb"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3947,7 +3947,7 @@ dependencies = [
 [[package]]
 name = "uf-product-macros"
 version = "0.1.0"
-source = "git+https://github.com/unified-field-dev/unified-field-product?branch=main#83dcb1183b554007d9e98cbeea0b9e1b20ea88c8"
+source = "git+https://github.com/unified-field-dev/unified-field-product?branch=main#d0435def93c2e9168cb1497358a84bfa69697cc5"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -3966,7 +3966,7 @@ dependencies = [
 [[package]]
 name = "uf-search-core"
 version = "0.1.0"
-source = "git+https://github.com/unified-field-dev/unified-field-product?branch=main#83dcb1183b554007d9e98cbeea0b9e1b20ea88c8"
+source = "git+https://github.com/unified-field-dev/unified-field-product?branch=main#d0435def93c2e9168cb1497358a84bfa69697cc5"
 dependencies = [
  "anyhow",
  "serde",
@@ -4672,11 +4672,6 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "gauge"
-version = "0.1.0"
-source = "git+https://github.com/unified-field-dev/gauge?branch=main#84e1d0336c10ba0b92f7102fa06347d8a248b47f"
 
 [[patch.unused]]
 name = "orbital-base-components"

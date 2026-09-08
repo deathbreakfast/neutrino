@@ -2,7 +2,7 @@
 
 Runnable teaching hosts for this product. Each card: when to use · command ·
 success · look next. Copy `Cargo.toml` + `main.rs` into your composite host.
-UI mount steps live in [neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app)
+UI mount steps live in [neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app)
 rustdoc (**Mount Neutrino routes**).
 
 ## Canonical path
@@ -22,7 +22,7 @@ cargo run -p vault-host
 **Success:** stdout prints `vault_host: OK — bootstrap → role gate → rotate/reveal`.
 
 **Next step:** Follow the **Mount Neutrino routes** guide in
-[neutrino-uf-app](https://github.com/deathbreakfast/neutrino-uf-app)
+[neutrino-uf-app](https://github.com/unified-field-dev/neutrino-uf-app)
 (`cargo doc -p neutrino-app --features ssr`). Domain copy table:
 [`vault-host/README.md`](vault-host/README.md).
 

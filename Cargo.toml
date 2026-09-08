@@ -103,7 +103,7 @@ spectra-codegen = { package = "spectra-codegen", git = "https://github.com/unifi
 neutrino-crate = { path = "neutrino", package = "neutrino", default-features = false }
 neutrino = { path = "neutrino", default-features = false }
 neutrino-spectra-telemetry = { path = "neutrino-spectra-telemetry" }
-gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main", default-features = false }
+gauge = { git = "https://github.com/unified-field-dev/gauge", branch = "main", default-features = false }
 
 # Server / data
 serde = { version = "1", features = ["derive"] }
@@ -174,16 +174,3 @@ orbital-tree = { git = "https://github.com/unified-field-dev/orbital", branch = 
 orbital-scheduler = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-motion = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
 orbital-history = { git = "https://github.com/unified-field-dev/orbital", branch = "main" }
-
-# Until ActorId / ParentResourceEditPolicy land on uf-dev gauge main.
-[patch."https://github.com/unified-field-dev/gauge"]
-gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main" }
-
-# Until identity/notification SchemaMetadataInit dual-reg fixes land on uf-dev.
-[patch."https://github.com/unified-field-dev/lepton"]
-lepton = { git = "https://github.com/deathbreakfast/lepton", branch = "main" }
-lepton-identity = { git = "https://github.com/deathbreakfast/lepton", branch = "main" }
-lepton-host-adapter = { git = "https://github.com/deathbreakfast/lepton", branch = "main" }
-
-[patch."https://github.com/unified-field-dev/uf-notifications"]
-uf-notifications-core = { git = "https://github.com/deathbreakfast/uf-notifications", branch = "main" }
