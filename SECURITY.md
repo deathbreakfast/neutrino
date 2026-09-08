@@ -58,7 +58,9 @@ in the live vault wrappers.
 permissions and per-secret grants. Reveal always takes an explicit `totp_code`
 and runs `verify_fresh_totp` (`step_up = "fresh"`), so a valid window alone is
 not enough — including Super User break-glass. `list_vault_secrets` and
-`neutrino_vault_ping` stay window-free.
+`neutrino_vault_ping` stay window-free. `list_vault_secrets` accepts an optional
+`scope_prefix` that narrows browsable metadata by path; omit it for the full list.
+Prefix filtering is not a Gauge View check — coarse `SecretsRead` still applies.
 
 ## Master key
 

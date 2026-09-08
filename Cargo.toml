@@ -178,3 +178,12 @@ orbital-history = { git = "https://github.com/unified-field-dev/orbital", branch
 # Until ActorId / ParentResourceEditPolicy land on uf-dev gauge main.
 [patch."https://github.com/unified-field-dev/gauge"]
 gauge = { git = "https://github.com/deathbreakfast/gauge", branch = "main" }
+
+# Until identity/notification SchemaMetadataInit dual-reg fixes land on uf-dev.
+[patch."https://github.com/unified-field-dev/lepton"]
+lepton = { git = "https://github.com/deathbreakfast/lepton", branch = "main" }
+lepton-identity = { git = "https://github.com/deathbreakfast/lepton", branch = "main" }
+lepton-host-adapter = { git = "https://github.com/deathbreakfast/lepton", branch = "main" }
+
+[patch."https://github.com/unified-field-dev/uf-notifications"]
+uf-notifications-core = { git = "https://github.com/deathbreakfast/uf-notifications", branch = "main" }

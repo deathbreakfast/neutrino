@@ -74,7 +74,7 @@ async fn matrix_authenticated_user_browses_all_secrets_happy() {
     )
     .await
     .expect("create");
-    let bob_list = list_vault_secrets(&v).await.expect("list");
+    let bob_list = list_vault_secrets(&v, None).await.expect("list");
     assert!(bob_list.iter().any(|r| r.id == row.id));
 }
 

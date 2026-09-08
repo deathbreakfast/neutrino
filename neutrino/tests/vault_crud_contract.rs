@@ -139,7 +139,7 @@ async fn list_vault_secrets_includes_created_happy_path() {
     .await
     .expect("create");
 
-    let rows = list_vault_secrets(&v).await.expect("list");
+    let rows = list_vault_secrets(&v, None).await.expect("list");
     let row = rows
         .iter()
         .find(|r| r.id == created.id)
@@ -226,7 +226,7 @@ async fn delete_vault_secret_removes_from_list_happy_path() {
         .await
         .expect("delete");
 
-    let rows = list_vault_secrets(&v).await.expect("list");
+    let rows = list_vault_secrets(&v, None).await.expect("list");
     assert!(
         rows.iter().all(|r| r.id != created.id),
         "deleted secret must not appear in list"
@@ -258,7 +258,7 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
     .await
     .expect("create");
 
-    let listed = list_vault_secrets(&v).await.expect("list");
+    let listed = list_vault_secrets(&v, None).await.expect("list");
     assert!(listed.iter().any(|r| r.id == created.id));
 
     let revealed = reveal_vault_secret(&store, created.id.clone())
@@ -286,7 +286,9 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
         .await
         .expect("delete");
 
-    let after = list_vault_secrets(&v).await.expect("list after delete");
+    let after = list_vault_secrets(&v, None)
+        .await
+        .expect("list after delete");
     assert!(after.iter().all(|r| r.id != created.id));
 
     let reveal_err = reveal_vault_secret(&store, created.id)
@@ -417,4 +419,113 @@ async fn rotate_vault_secret_unknown_id_not_found_sad() {
         .await
         .expect_err("unknown id");
     assert_not_found_or_pending(&err.to_string());
+}
+
+#[tokio::test]
+async fn list_vault_secrets_none_returns_all_happy() {
+    let v = test_valence().await;
+    let store = ValenceSealedStore {
+        valence: Arc::new(v.clone()),
+        request_actor: Some("actor".into()),
+    };
+    let finance = create_vault_secret(
+        &store,
+        "finance_feed".into(),
+        "/finance/org1/feeds/chase".into(),
+        "token".into(),
+        "finance-pt".into(),
+        "actor".into(),
+    )
+    .await
+    .expect("create finance");
+    let gluon = create_vault_secret(
+        &store,
+        "gluon_smtp".into(),
+        "/gluon/smtp".into(),
+        "password".into(),
+        "gluon-pt".into(),
+        "actor".into(),
+    )
+    .await
+    .expect("create gluon");
+
+    let rows = list_vault_secrets(&v, None).await.expect("list all");
+    let ids: Vec<_> = rows.iter().map(|r| r.id.as_str()).collect();
+    assert!(ids.contains(&finance.id.as_str()));
+    assert!(ids.contains(&gluon.id.as_str()));
+
+    let whitespace = list_vault_secrets(&v, Some("   "))
+        .await
+        .expect("whitespace prefix = all");
+    assert_eq!(whitespace.len(), rows.len());
+}
+
+#[tokio::test]
+async fn list_vault_secrets_scope_prefix_filters_happy() {
+    let v = test_valence().await;
+    let store = ValenceSealedStore {
+        valence: Arc::new(v.clone()),
+        request_actor: Some("actor".into()),
+    };
+    let under = create_vault_secret(
+        &store,
+        "under_feeds".into(),
+        "/finance/o1/feeds/chase".into(),
+        "token".into(),
+        "under-pt".into(),
+        "actor".into(),
+    )
+    .await
+    .expect("create under");
+    let _gluon = create_vault_secret(
+        &store,
+        "gluon_other".into(),
+        "/gluon/provider/aws".into(),
+        "token".into(),
+        "gluon-pt".into(),
+        "actor".into(),
+    )
+    .await
+    .expect("create gluon");
+    let _sibling = create_vault_secret(
+        &store,
+        "sibling_feed".into(),
+        "/finance/o1/feed".into(),
+        "token".into(),
+        "sibling-pt".into(),
+        "actor".into(),
+    )
+    .await
+    .expect("create sibling");
+
+    let rows = list_vault_secrets(&v, Some("/finance/o1/feeds"))
+        .await
+        .expect("filtered list");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, under.id);
+    assert_eq!(rows[0].scope_path, "/finance/o1/feeds/chase");
+}
+
+#[tokio::test]
+async fn list_vault_secrets_scope_prefix_empty_sad() {
+    let v = test_valence().await;
+    let store = ValenceSealedStore {
+        valence: Arc::new(v.clone()),
+        request_actor: Some("actor".into()),
+    };
+    let _ = create_vault_secret(
+        &store,
+        "somewhere".into(),
+        "/gluon/smtp".into(),
+        "token".into(),
+        "pt".into(),
+        "actor".into(),
+    )
+    .await
+    .expect("create");
+
+    let rows = list_vault_secrets(&v, Some("/finance/missing/feeds"))
+        .await
+        .expect("empty filter is Ok");
+    assert!(rows.is_empty());
 }

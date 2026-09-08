@@ -126,7 +126,7 @@ fn row_from_listed(r: ListedSecret) -> VaultSecretRow {
 }
 
 async fn listed_for_id(valence: &Valence, sid: &str) -> NeutrinoResult<ListedSecret> {
-    let listed = list_secrets(valence).await?;
+    let listed = list_secrets(valence, None).await?;
     listed
         .into_iter()
         .find(|r| r.id == sid)
@@ -138,12 +138,18 @@ pub async fn neutrino_vault_ping(store: &ValenceSealedStore) -> NeutrinoResult<(
     store.ping().await
 }
 
-/// Lists non-sensitive metadata for every vault secret (browsable by decision).
+/// Lists non-sensitive metadata for vault secrets (browsable by decision).
 ///
-/// The returned DTO excludes ciphertext and `owner_subject_json`; reveal/delete/rotate
-/// still enforce per-secret Gauge permissions separately.
-pub async fn list_vault_secrets(valence: &Valence) -> NeutrinoResult<Vec<VaultSecretRow>> {
-    let listed = list_secrets(valence).await?;
+/// When `scope_prefix` is `None` or trims empty, returns every row the actor may browse.
+/// Otherwise keeps rows whose `scope_path` matches
+/// [`crate::scope_path_matches_prefix`]. The returned DTO excludes ciphertext and
+/// `owner_subject_json`; reveal/delete/rotate still enforce per-secret Gauge
+/// permissions separately.
+pub async fn list_vault_secrets(
+    valence: &Valence,
+    scope_prefix: Option<&str>,
+) -> NeutrinoResult<Vec<VaultSecretRow>> {
+    let listed = list_secrets(valence, scope_prefix).await?;
     Ok(listed
         .into_iter()
         .filter(|r| !r.id.is_empty())
@@ -225,7 +231,7 @@ pub async fn rotate_vault_secret(
     let cref = store.rotate(&SecretId(sid.clone()), pt, actor).await?;
     let _ = cref;
 
-    let listed = list_secrets(store.valence.as_ref()).await?;
+    let listed = list_secrets(store.valence.as_ref(), None).await?;
     let row = listed
         .into_iter()
         .find(|r| r.id == sid)

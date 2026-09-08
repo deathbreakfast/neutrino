@@ -158,7 +158,7 @@ async fn list_returns_all_secrets_without_owner_filter_happy_path() {
     .await
     .expect("create bob");
 
-    let alice_list = list_vault_secrets(&v).await.expect("list alice");
+    let alice_list = list_vault_secrets(&v, None).await.expect("list alice");
     assert!(alice_list.iter().any(|r| r.id == alice_row.id));
     assert!(
         alice_list.iter().any(|r| r.id == bob_row.id),

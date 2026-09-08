@@ -48,13 +48,19 @@ pub struct ListedSecret {
 
 /// All [`NeutrinoSecret`] rows (metadata only), sorted by `created_at` ascending.
 ///
-/// Returns every secret's metadata. Owner subject JSON is intentionally omitted so
+/// When `scope_prefix` is `None` or trims empty, returns every secret's metadata.
+/// Otherwise keeps rows whose `scope_path` matches via
+/// [`crate::scope_path_matches_prefix`]. Owner subject JSON is intentionally omitted so
 /// product list DTOs cannot leak it by field copy (see [`crate::vault::VaultSecretRow`]).
-pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>> {
+pub async fn list_secrets(
+    valence: &Valence,
+    scope_prefix: Option<&str>,
+) -> NeutrinoResult<Vec<ListedSecret>> {
     let mut rows: Vec<NeutrinoSecret> = NeutrinoSecret::query(valence)
         .await
         .map_err(|e| NeutrinoError::service("valence", e))?;
     rows.sort_by_key(|r| *r.created_at());
+    let prefix = scope_prefix.map(str::trim).filter(|p| !p.is_empty());
     Ok(rows
         .into_iter()
         .map(|r| ListedSecret {
@@ -67,6 +73,10 @@ pub async fn list_secrets(valence: &Valence) -> NeutrinoResult<Vec<ListedSecret>
             kind: r.kind().clone(),
             current_version: *r.current_version(),
             created_at: *r.created_at(),
+        })
+        .filter(|r| match prefix {
+            None => true,
+            Some(p) => crate::scope_path_matches_prefix(&r.scope_path, p),
         })
         .collect())
 }
@@ -285,7 +295,7 @@ impl SecretStore for ValenceSealedStore {
         .map_err(|e| NeutrinoError::service("valence", e))?;
 
         if let Err(e) = NeutrinoSecretVersion::create(ver_row, self.valence.as_ref()).await {
-            let _ = NeutrinoSecret::delete(persisted_id.as_str(), self.valence.as_ref()).await;
+            let _ = NeutrinoSecret::delete_now(persisted_id.as_str(), self.valence.as_ref()).await;
             let _ =
                 delete_secret_permission_bundle(self.valence.as_ref(), persisted_id.as_str()).await;
             return Err(NeutrinoError::service("valence", e));
@@ -442,7 +452,8 @@ impl SecretStore for ValenceSealedStore {
 
         // Sync DAG delete while Gauge grants still authorize version CascadeDelete;
         // then tear down the per-secret permission bundle.
-        NeutrinoSecret::delete(sid, self.valence.as_ref())
+        // Use `delete_now` (not queued `delete`) so list/reveal see the row gone in this request.
+        NeutrinoSecret::delete_now(sid, self.valence.as_ref())
             .await
             .map_err(|e| NeutrinoError::service("delete", e))?;
         delete_secret_permission_bundle(self.valence.as_ref(), sid).await?;

@@ -372,13 +372,13 @@ async fn list_browsable_all_secrets_reveal_still_gated_happy() {
     seed_user("stranger_list", "stranger_list@example.test", &system).await;
     grant_secret_action(&system, &secret_id, ResourceAction::View, "viewer_list").await;
 
-    let rows = list_vault_secrets(&system).await.expect("list");
+    let rows = list_vault_secrets(&system, None).await.expect("list");
     assert!(
         rows.iter().any(|r| r.id == secret_id),
         "list includes secret for viewer"
     );
 
-    let stranger_rows = list_vault_secrets(&system).await.expect("list");
+    let stranger_rows = list_vault_secrets(&system, None).await.expect("list");
     assert!(
         stranger_rows.iter().any(|r| r.id == secret_id),
         "browsable list includes foreign secrets"
@@ -438,7 +438,7 @@ async fn delete_denied_without_delete_grant_sad() {
     );
 
     // Side effect: secret still listed for owner (secret still listed).
-    let rows = list_vault_secrets(&system).await.expect("owner list");
+    let rows = list_vault_secrets(&system, None).await.expect("owner list");
     assert!(
         rows.iter().any(|r| r.id == secret_id),
         "denied delete must leave secret intact"
