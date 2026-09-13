@@ -31,17 +31,17 @@ pub async fn seed_user(id: &str, email: &str, v: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert_used(id, user, v, valence::use_!("upsert User in neutrino/tests/gauge_test_wiring.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    lepton::generated::User::upsert_used(id, user, v, valence::use_!(r#"**Test:** Fixture **User** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("upsert user");
 }
 
 pub async fn add_user_to_group(user_id: &str, group_id: &str, v: &Valence) {
-    let group = gauge::generated::PermissionGroup::get_used(group_id, v, valence::use_!("get PermissionGroup in neutrino/tests/gauge_test_wiring.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    let group = gauge::generated::PermissionGroup::get_used(group_id, v, valence::use_!(r#"**Test:** Fixture **Permission Group** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("get group")
         .unwrap_or_else(|| panic!("group {group_id} missing"));
-    let user = lepton::generated::User::get_used(user_id, v, valence::use_!("get User in neutrino/tests/gauge_test_wiring.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    let user = lepton::generated::User::get_used(user_id, v, valence::use_!(r#"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("get user")
         .expect("user row");
@@ -53,7 +53,7 @@ pub async fn add_user_to_group(user_id: &str, group_id: &str, v: &Valence) {
         )
         .expect("principal"),
         v,
-        valence::use_!("upsert PermissionUserPrincipal in neutrino/tests/gauge_test_wiring.rs; Valence persistence for this feature path; typed store; visible to test harness."),
+        valence::use_!(r#"**Test:** Fixture **Permission User Principal** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#),
     )
     .await
     .expect("upsert principal");

@@ -35,7 +35,7 @@ fn audit_outcome(outcome: &str) -> NeutrinoSecretAuditEventOutcome {
 }
 
 async fn last_audit_hash_for_secret(v: &Valence, secret_id: &str) -> NeutrinoResult<String> {
-    let rows = NeutrinoSecretAuditEvent::query_used(v, valence::use_!("query NeutrinoSecretAuditEvent in src/instrumentation/audit.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
+    let rows = NeutrinoSecretAuditEvent::query_used(v, valence::use_!(r#"In **instrumentation**, we **list Neutrino Secret Audit Event** so the product can show or process the matching set for this workflow. Callers allowed for **instrumentation** use the list; it is not a public dump of every field to anonymous visitors."#))
         .where_secret_id(StringPredicate::Equals(secret_id.to_string()))
         .await
         .map_err(|e| NeutrinoError::service("audit_query", e))?;
@@ -95,7 +95,7 @@ async fn append_audit_row(
         ts,
     )
     .map_err(|e| NeutrinoError::service("audit_append", e))?;
-    NeutrinoSecretAuditEvent::upsert_used(ev_hash.as_str(), ev, valence, valence::use_!("upsert NeutrinoSecretAuditEvent in src/instrumentation/audit.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
+    NeutrinoSecretAuditEvent::upsert_used(ev_hash.as_str(), ev, valence, valence::use_!(r#"When **instrumentation** needs to persist work, we **save Neutrino Secret Audit Event** so the next step in that feature can continue with the latest values. People and services allowed for **instrumentation** use this data for that workflow—not as a general export of unrelated personal fields."#))
         .await
         .map_err(|e| NeutrinoError::service("audit_append", e))?;
     Ok(())

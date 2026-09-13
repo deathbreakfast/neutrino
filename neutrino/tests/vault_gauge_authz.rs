@@ -68,11 +68,11 @@ async fn system_valence() -> Valence {
 }
 
 async fn add_user_to_creators_group(user_id: &str, system: &Valence) {
-    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", system, valence::use_!("get PermissionGroup in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", system, valence::use_!(r#"**Test:** Fixture **Permission Group** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("get creators group")
         .expect("neutrino.secret.creators must exist");
-    let user = lepton::generated::User::get_used(user_id, system, valence::use_!("get User in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    let user = lepton::generated::User::get_used(user_id, system, valence::use_!(r#"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("get user")
         .expect("user row");
@@ -84,7 +84,7 @@ async fn add_user_to_creators_group(user_id: &str, system: &Valence) {
         )
         .expect("principal"),
         system,
-        valence::use_!("upsert PermissionUserPrincipal in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."),
+        valence::use_!(r#"**Test:** Fixture **Permission User Principal** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#),
     )
     .await
     .expect("upsert principal");
@@ -102,11 +102,11 @@ async fn grant_secret_action(
     user_id: &str,
 ) {
     let perm_id = permission_record_id(ResourceKind::NeutrinoSecret, secret_id, action);
-    let permission = gauge::generated::Permission::get_used(&perm_id, system, valence::use_!("get Permission in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    let permission = gauge::generated::Permission::get_used(&perm_id, system, valence::use_!(r#"**Test:** Fixture **Permission** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("get permission")
         .unwrap_or_else(|| panic!("permission {perm_id} must exist after bundle ensure"));
-    let user = lepton::generated::User::get_used(user_id, system, valence::use_!("get User in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    let user = lepton::generated::User::get_used(user_id, system, valence::use_!(r#"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("get user")
         .expect("user row");
@@ -118,7 +118,7 @@ async fn grant_secret_action(
         )
         .expect("principal"),
         system,
-        valence::use_!("upsert PermissionUserPrincipal in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."),
+        valence::use_!(r#"**Test:** Fixture **Permission User Principal** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#),
     )
     .await
     .expect("upsert principal");
@@ -193,7 +193,7 @@ async fn put_ensure_creates_gauge_bundle_happy_path() {
         ResourceAction::Reveal,
     );
     assert!(
-        gauge::generated::Permission::query_used(&system, valence::use_!("query Permission in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+        gauge::generated::Permission::query_used(&system, valence::use_!(r#"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
             .where_name(valence::StringPredicate::Equals(reveal_name.clone()))
             .limit(1)
             .first()
@@ -292,7 +292,7 @@ async fn system_owner_put_skips_bundle_happy() {
         ResourceAction::Maintain,
     );
     assert!(
-        gauge::generated::Permission::query_used(&system, valence::use_!("query Permission in neutrino/tests/vault_gauge_authz.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+        gauge::generated::Permission::query_used(&system, valence::use_!(r#"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
             .where_name(valence::StringPredicate::Equals(maintain_name))
             .limit(1)
             .first()

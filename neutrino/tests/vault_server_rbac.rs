@@ -81,7 +81,7 @@ async fn seed_user(id: &str, email: &str, valence: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert_used(id, user, valence, valence::use_!("upsert User in neutrino/tests/vault_server_rbac.rs; Valence persistence for this feature path; typed store; visible to test harness."))
+    lepton::generated::User::upsert_used(id, user, valence, valence::use_!(r#"**Test:** Fixture **User** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."#))
         .await
         .expect("upsert user");
 }
