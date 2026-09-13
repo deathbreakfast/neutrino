@@ -135,21 +135,21 @@ async fn seed_user(id: &str, v: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert(id, user, v)
+    lepton::generated::User::upsert_used(id, user, v, valence::use_!("upsert User in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
         .await
         .expect("upsert user");
 }
 
 async fn add_user_to_creators_group(user_id: &str, v: &Valence) {
-    let group = gauge::generated::PermissionGroup::get("neutrino.secret.creators", v)
+    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", v, valence::use_!("get PermissionGroup in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
         .await
         .expect("get creators group")
         .expect("neutrino.secret.creators");
-    let user = lepton::generated::User::get(user_id, v)
+    let user = lepton::generated::User::get_used(user_id, v, valence::use_!("get User in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
         .await
         .expect("get user")
         .expect("user row");
-    let principal = gauge::generated::PermissionUserPrincipal::upsert(
+    let principal = gauge::generated::PermissionUserPrincipal::upsert_used(
         &format!("user:{user_id}"),
         gauge::generated::PermissionUserPrincipal::new(
             user.id().expect("user id").clone(),
@@ -157,6 +157,7 @@ async fn add_user_to_creators_group(user_id: &str, v: &Valence) {
         )
         .expect("principal"),
         v,
+        valence::use_!("upsert PermissionUserPrincipal in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."),
     )
     .await
     .expect("upsert principal");

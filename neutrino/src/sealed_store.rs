@@ -56,7 +56,7 @@ pub async fn list_secrets(
     valence: &Valence,
     scope_prefix: Option<&str>,
 ) -> NeutrinoResult<Vec<ListedSecret>> {
-    let mut rows: Vec<NeutrinoSecret> = NeutrinoSecret::query(valence)
+    let mut rows: Vec<NeutrinoSecret> = NeutrinoSecret::query_used(valence, valence::use_!("query NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
         .await
         .map_err(|e| NeutrinoError::service("valence", e))?;
     rows.sort_by_key(|r| *r.created_at());
@@ -259,7 +259,7 @@ impl SecretStore for ValenceSealedStore {
         )
         .map_err(|e| NeutrinoError::service("valence", e))?;
 
-        let created = match NeutrinoSecret::upsert(sid.as_str(), secret_row, self.valence.as_ref())
+        let created = match NeutrinoSecret::upsert_used(sid.as_str(), secret_row, self.valence.as_ref(), valence::use_!("upsert NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
         {
             Ok(row) => row,
@@ -294,8 +294,8 @@ impl SecretStore for ValenceSealedStore {
         )
         .map_err(|e| NeutrinoError::service("valence", e))?;
 
-        if let Err(e) = NeutrinoSecretVersion::create(ver_row, self.valence.as_ref()).await {
-            let _ = NeutrinoSecret::delete_now(persisted_id.as_str(), self.valence.as_ref()).await;
+        if let Err(e) = NeutrinoSecretVersion::create_used(ver_row, self.valence.as_ref(), valence::use_!("create NeutrinoSecretVersion in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path.")).await {
+            let _ = NeutrinoSecret::delete_now_used(persisted_id.as_str(), self.valence.as_ref(), valence::use_!("delete_now NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path.")).await;
             let _ =
                 delete_secret_permission_bundle(self.valence.as_ref(), persisted_id.as_str()).await;
             return Err(NeutrinoError::service("valence", e));
@@ -321,7 +321,7 @@ impl SecretStore for ValenceSealedStore {
     }
 
     async fn put_or_reuse(&self, req: PutSecretRequest) -> NeutrinoResult<SecretRef> {
-        let mut matches: Vec<NeutrinoSecret> = NeutrinoSecret::query(self.valence.as_ref())
+        let mut matches: Vec<NeutrinoSecret> = NeutrinoSecret::query_used(self.valence.as_ref(), valence::use_!("query NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?
             .into_iter()
@@ -386,7 +386,7 @@ impl SecretStore for ValenceSealedStore {
 
     async fn get(&self, id: &SecretId) -> NeutrinoResult<RevealedSecret> {
         let id_key = extract_id_from_record_display(id.0.as_str()).unwrap_or_else(|_| id.0.clone());
-        let secret = match NeutrinoSecret::get(&id_key, self.valence.as_ref()).await {
+        let secret = match NeutrinoSecret::get_used(&id_key, self.valence.as_ref(), valence::use_!("get NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path.")).await {
             Ok(Some(row)) => row,
             Ok(None) => {
                 let actor = audit_actor_for_store(self);
@@ -428,7 +428,7 @@ impl SecretStore for ValenceSealedStore {
 
     async fn delete(&self, id: &SecretId) -> NeutrinoResult<()> {
         let sid = id.0.as_str();
-        let secret = NeutrinoSecret::get(sid, self.valence.as_ref())
+        let secret = NeutrinoSecret::get_used(sid, self.valence.as_ref(), valence::use_!("get NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?
             .ok_or_else(|| NeutrinoError::not_found(sid))?;
@@ -453,7 +453,7 @@ impl SecretStore for ValenceSealedStore {
         // Sync DAG delete while Gauge grants still authorize version CascadeDelete;
         // then tear down the per-secret permission bundle.
         // Use `delete_now` (not queued `delete`) so list/reveal see the row gone in this request.
-        NeutrinoSecret::delete_now(sid, self.valence.as_ref())
+        NeutrinoSecret::delete_now_used(sid, self.valence.as_ref(), valence::use_!("delete_now NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
             .map_err(|e| NeutrinoError::service("delete", e))?;
         delete_secret_permission_bundle(self.valence.as_ref(), sid).await?;
@@ -468,7 +468,7 @@ impl SecretStore for ValenceSealedStore {
     ) -> NeutrinoResult<SecretRef> {
         let master = master_key_from_env()?;
         let sid = id.0.as_str();
-        let secret = NeutrinoSecret::get(sid, self.valence.as_ref())
+        let secret = NeutrinoSecret::get_used(sid, self.valence.as_ref(), valence::use_!("get NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?
             .ok_or_else(|| NeutrinoError::not_found(sid))?;
@@ -479,7 +479,7 @@ impl SecretStore for ValenceSealedStore {
         let now = Utc::now();
 
         let secret_rid = RecordId::new("neutrino_secret", sid);
-        let rows = NeutrinoSecretVersion::query(self.valence.as_ref())
+        let rows = NeutrinoSecretVersion::query_used(self.valence.as_ref(), valence::use_!("query NeutrinoSecretVersion in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .where_secret_id(RecordPredicate::Equals(secret_rid.clone()))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?;
@@ -505,23 +505,23 @@ impl SecretStore for ValenceSealedStore {
             actor.to_string(),
         )
         .map_err(|e| NeutrinoError::service("valence", e))?;
-        NeutrinoSecretVersion::create(new_ver_row, self.valence.as_ref())
+        NeutrinoSecretVersion::create_used(new_ver_row, self.valence.as_ref(), valence::use_!("create NeutrinoSecretVersion in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?;
 
         old_row
-            .get_mutable(self.valence.as_ref())
+            .get_mutable_used(self.valence.as_ref(), valence::use_!("get_mutable via sealed_store.rs; mutable handle for in-place update; typed store; session/service path."))
             .set_status(NeutrinoSecretVersionStatus::Archived)
             .map_err(|e| NeutrinoError::service("rotate", e))?
             .commit()
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?;
 
-        NeutrinoSecret::get(sid, self.valence.as_ref())
+        NeutrinoSecret::get_used(sid, self.valence.as_ref(), valence::use_!("get NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?
             .ok_or_else(|| NeutrinoError::service("rotate", anyhow::anyhow!("secret vanished")))?
-            .get_mutable(self.valence.as_ref())
+            .get_mutable_used(self.valence.as_ref(), valence::use_!("get_mutable via sealed_store.rs; mutable handle for in-place update; typed store; session/service path."))
             .set_current_version(new_ver)
             .map_err(|e| NeutrinoError::service("rotate", e))?
             .set_updated_at(now)
@@ -578,7 +578,7 @@ impl ValenceSealedStore {
         let id_key = extract_id_from_record_display(id.0.as_str()).unwrap_or_else(|_| id.0.clone());
         let actor = audit_actor_for_store(self);
 
-        let secret = match NeutrinoSecret::get(&id_key, self.valence.as_ref()).await {
+        let secret = match NeutrinoSecret::get_used(&id_key, self.valence.as_ref(), valence::use_!("get NeutrinoSecret in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path.")).await {
             Ok(Some(row)) => row,
             Ok(None) => {
                 emit_access(
@@ -616,7 +616,7 @@ impl ValenceSealedStore {
         let scope_path = secret.scope_path().clone();
         let secret_name = secret.name().clone();
         let secret_rid = RecordId::new("neutrino_secret", id_key.as_str());
-        let rows = NeutrinoSecretVersion::query(self.valence.as_ref())
+        let rows = NeutrinoSecretVersion::query_used(self.valence.as_ref(), valence::use_!("query NeutrinoSecretVersion in neutrino/src/sealed_store.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
             .where_secret_id(RecordPredicate::Equals(secret_rid.clone()))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?;

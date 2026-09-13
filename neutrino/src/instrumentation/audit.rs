@@ -35,7 +35,7 @@ fn audit_outcome(outcome: &str) -> NeutrinoSecretAuditEventOutcome {
 }
 
 async fn last_audit_hash_for_secret(v: &Valence, secret_id: &str) -> NeutrinoResult<String> {
-    let rows = NeutrinoSecretAuditEvent::query(v)
+    let rows = NeutrinoSecretAuditEvent::query_used(v, valence::use_!("query NeutrinoSecretAuditEvent in src/instrumentation/audit.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
         .where_secret_id(StringPredicate::Equals(secret_id.to_string()))
         .await
         .map_err(|e| NeutrinoError::service("audit_query", e))?;
@@ -95,7 +95,7 @@ async fn append_audit_row(
         ts,
     )
     .map_err(|e| NeutrinoError::service("audit_append", e))?;
-    NeutrinoSecretAuditEvent::upsert(ev_hash.as_str(), ev, valence)
+    NeutrinoSecretAuditEvent::upsert_used(ev_hash.as_str(), ev, valence, valence::use_!("upsert NeutrinoSecretAuditEvent in src/instrumentation/audit.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
         .await
         .map_err(|e| NeutrinoError::service("audit_append", e))?;
     Ok(())

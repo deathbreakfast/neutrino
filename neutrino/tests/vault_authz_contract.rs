@@ -189,7 +189,7 @@ async fn reveal_audit_attributes_request_actor_not_system_happy_path() {
         .await
         .expect("reveal");
 
-    let events = NeutrinoSecretAuditEvent::query(&v)
+    let events = NeutrinoSecretAuditEvent::query_used(&v, valence::use_!("query NeutrinoSecretAuditEvent in neutrino/tests/vault_authz_contract.rs; Valence persistence for this feature path; typed store; visible to test harness."))
         .await
         .expect("query audit");
     let get_or_reveal = events
