@@ -135,17 +135,17 @@ async fn seed_user(id: &str, v: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert_used(id, user, v, valence::use_!("upsert User in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
+    lepton::generated::User::upsert_used(id, user, v, valence::use_!(r#"When **vault host** needs to persist work, we **save User** so the next step in that feature can continue with the latest values. People and services allowed for **vault host** use this data for that workflow—not as a general export of unrelated personal fields."#))
         .await
         .expect("upsert user");
 }
 
 async fn add_user_to_creators_group(user_id: &str, v: &Valence) {
-    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", v, valence::use_!("get PermissionGroup in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
+    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", v, valence::use_!(r#"In **vault host**, we **load Permission Group** so the application can decide what to do next in this workflow. The result is used by **vault host** logic—not necessarily displayed on a page unless that feature’s UI shows it."#))
         .await
         .expect("get creators group")
         .expect("neutrino.secret.creators");
-    let user = lepton::generated::User::get_used(user_id, v, valence::use_!("get User in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."))
+    let user = lepton::generated::User::get_used(user_id, v, valence::use_!(r#"In **vault host**, we **load User** so the application can decide what to do next in this workflow. The result is used by **vault host** logic—not necessarily displayed on a page unless that feature’s UI shows it."#))
         .await
         .expect("get user")
         .expect("user row");
@@ -157,7 +157,7 @@ async fn add_user_to_creators_group(user_id: &str, v: &Valence) {
         )
         .expect("principal"),
         v,
-        valence::use_!("upsert PermissionUserPrincipal in vault-host/src/main.rs; Valence persistence for this feature path; typed store; visible to session actor / service path."),
+        valence::use_!(r#"When **vault host** needs to persist work, we **save Permission User Principal** so the next step in that feature can continue with the latest values. People and services allowed for **vault host** use this data for that workflow—not as a general export of unrelated personal fields."#),
     )
     .await
     .expect("upsert principal");
