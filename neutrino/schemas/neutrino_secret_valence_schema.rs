@@ -6,6 +6,7 @@ use valence::privacy_policies::common::{AUTHENTICATED, SYSTEM_ONLY};
 
 valence_schema! {
     NeutrinoSecret {
+        repository: "https://github.com/unified-field-dev/neutrino",
         table: "neutrino_secret",
         version: "0.2.0",
         database: crate::embedded_surreal::DEFAULT_STORAGE,

@@ -87,7 +87,7 @@ pub async fn create_initial_neutrino_groups(v: &Valence) -> Result<(), ResourceP
 ///
 /// Returns [`NeutrinoError::Config`] when the catalog domain row is missing.
 pub async fn assert_neutrino_catalog_seeded(v: &Valence) -> NeutrinoResult<()> {
-    let exists = PermissionDomain::get(NEUTRINO_CATALOG_DOMAIN_ID, v)
+    let exists = PermissionDomain::get_used(NEUTRINO_CATALOG_DOMAIN_ID, v, valence::use_!(r"In **Gauge permissions**, we **load Permission Domain** so the application can decide what to do next in this workflow. The result is used by **Gauge permissions** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
         .await
         .map_err(|e| NeutrinoError::service("assert_neutrino_catalog_seeded", e))?
         .is_some();

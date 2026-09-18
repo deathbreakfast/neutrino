@@ -3,6 +3,7 @@ use valence::privacy_policies::common::SYSTEM_ONLY;
 
 valence_schema! {
     NeutrinoMasterKeyMeta {
+        repository: "https://github.com/unified-field-dev/neutrino",
         table: "neutrino_master_key_meta",
         version: "0.1.0",
         database: crate::embedded_surreal::DEFAULT_STORAGE,

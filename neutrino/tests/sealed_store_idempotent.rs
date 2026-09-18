@@ -95,7 +95,7 @@ async fn put_or_reuse_same_plaintext_reuses_id() -> anyhow::Result<()> {
         .await?;
     assert_eq!(r1.id.0, r2.id.0);
     assert_eq!(r1.version, r2.version);
-    let rows = neutrino::generated::NeutrinoSecret::query(store.valence.as_ref())
+    let rows = neutrino::generated::NeutrinoSecret::query_used(store.valence.as_ref(), valence::use_!(r"**Test:** When an app or operator **adds a secret to the Neutrino vault**, we store its **name, where it applies, what kind it is, and which version is current**—not the secret itself—so people and services that are allowed can find and manage it later."))
         .await
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     let n1_count = rows

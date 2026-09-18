@@ -81,7 +81,7 @@ async fn seed_user(id: &str, email: &str, valence: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert(id, user, valence)
+    lepton::generated::User::upsert_used(id, user, valence, valence::use_!(r"**Test:** Fixture **User** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("upsert user");
 }
