@@ -38,6 +38,15 @@ chronon-core = { workspace = true, optional = true }
 chronon-executor = { workspace = true, optional = true }
 chronon-coordinator-macros = { workspace = true, optional = true }
 chronon-valence-identity = { workspace = true, optional = true }
+aws-config = { version = "1", optional = true }
+aws-sdk-kms = { version = "1", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+tokio = { workspace = true, optional = true, features = ["sync", "rt"] }
+cryptoki = { version = "0.12", optional = true }
+tss-esapi = { version = "7.7", optional = true }
+photon = { package = "uf-photon", git = "https://github.com/unified-field-dev/photon", branch = "main", default-features = false, features = ["runtime"], optional = true }
+photon-macros = { git = "https://github.com/unified-field-dev/photon", branch = "main", optional = true }
+futures = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -49,6 +58,8 @@ ssr = [
     "dep:spectra-core",
     "dep:neutrino-spectra-telemetry",
 ]
+# Photon topic publish for `neutrino.secret.rotated` (Gluon / vault consumers).
+photon = ["ssr", "dep:photon", "dep:photon-macros", "dep:futures"]
 # Chronon scripts (umbrella revoke migration, future jobs).
 chronon = [
     "ssr",
@@ -60,12 +71,12 @@ chronon = [
 ]
 # Optional Gauge RBAC integration tests — pulls lepton/gauge SSR graph.
 rbac-tests = ["ssr", "dep:gauge", "gauge/ssr", "dep:lepton", "lepton/ssr"]
-# Stubs for upstream KMS / HSM `KeySource` work.
-kms-aws = []
-kms-gcp = []
-kms-vault-transit = []
-hsm-pkcs11 = []
-hsm-tpm = []
+# KMS / HSM master-key `KeySource` adapters.
+kms-aws = ["dep:aws-config", "dep:aws-sdk-kms", "dep:tokio"]
+kms-gcp = ["dep:reqwest"]
+kms-vault-transit = ["dep:reqwest"]
+hsm-pkcs11 = ["dep:cryptoki", "dep:tokio"]
+hsm-tpm = ["dep:tss-esapi", "dep:tokio"]
 
 [build-dependencies]
 valence-codegen = { workspace = true }
@@ -86,6 +97,10 @@ name = "product_surface"
 
 [[test]]
 name = "sealed_store_idempotent"
+required-features = ["ssr"]
+
+[[test]]
+name = "lease_grace_contract"
 required-features = ["ssr"]
 
 [[test]]
@@ -111,6 +126,14 @@ required-features = ["rbac-tests"]
 [[test]]
 name = "security_contract"
 required-features = ["rbac-tests"]
+
+[[test]]
+name = "hsm_pkcs11_integration"
+required-features = ["hsm-pkcs11"]
+
+[[test]]
+name = "hsm_tpm_integration"
+required-features = ["hsm-tpm"]
 
 [[test]]
 name = "access_matrix_contract"

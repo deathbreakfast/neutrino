@@ -68,15 +68,15 @@ async fn system_valence() -> Valence {
 }
 
 async fn add_user_to_creators_group(user_id: &str, system: &Valence) {
-    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", system, valence::use_!(r"**Test:** Fixture **Permission Group** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    let group = gauge::generated::PermissionGroup::get("neutrino.secret.creators", system, valence::use_!(r"**Test:** Fixture **Permission Group** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("get creators group")
         .expect("neutrino.secret.creators must exist");
-    let user = lepton::generated::User::get_used(user_id, system, valence::use_!(r"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    let user = lepton::generated::User::get(user_id, system, valence::use_!(r"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("get user")
         .expect("user row");
-    let principal = gauge::generated::PermissionUserPrincipal::upsert_used(
+    let principal = gauge::generated::PermissionUserPrincipal::upsert(
         &format!("user:{user_id}"),
         gauge::generated::PermissionUserPrincipal::new(
             user.id().expect("user id").clone(),
@@ -89,7 +89,7 @@ async fn add_user_to_creators_group(user_id: &str, system: &Valence) {
     .await
     .expect("upsert principal");
     group
-        .relate_to_member_record(principal.id().expect("principal id"), system)
+        .relate_to_member_record(principal.id().expect("principal id"), system, valence::use_!(r"**Test:** When an operator **adds a group member** in **Gauge**, we **write the member edge** so that principal inherits the group's grants. Operators see the updated members on the group detail."))
         .await
         .expect("relate member");
 }
@@ -102,15 +102,15 @@ async fn grant_secret_action(
     user_id: &str,
 ) {
     let perm_id = permission_record_id(ResourceKind::NeutrinoSecret, secret_id, action);
-    let permission = gauge::generated::Permission::get_used(&perm_id, system, valence::use_!(r"**Test:** Fixture **Permission** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    let permission = gauge::generated::Permission::get(&perm_id, system, valence::use_!(r"**Test:** Fixture **Permission** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("get permission")
         .unwrap_or_else(|| panic!("permission {perm_id} must exist after bundle ensure"));
-    let user = lepton::generated::User::get_used(user_id, system, valence::use_!(r"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    let user = lepton::generated::User::get(user_id, system, valence::use_!(r"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("get user")
         .expect("user row");
-    let principal = gauge::generated::PermissionUserPrincipal::upsert_used(
+    let principal = gauge::generated::PermissionUserPrincipal::upsert(
         &format!("user:{user_id}"),
         gauge::generated::PermissionUserPrincipal::new(
             user.id().expect("user id").clone(),
@@ -123,7 +123,7 @@ async fn grant_secret_action(
     .await
     .expect("upsert principal");
     permission
-        .relate_to_allowed_principal_record(principal.id().expect("principal id"), system)
+        .relate_to_allowed_principal_record(principal.id().expect("principal id"), system, valence::use_!(r"**Test:** When Gauge **grants a permission to a principal**, we **write the allowed-principal edge** so later checks know who may act. Operators and tests see that membership on the permission."))
         .await
         .expect("grant action");
 }
@@ -193,7 +193,7 @@ async fn put_ensure_creates_gauge_bundle_happy_path() {
         ResourceAction::Reveal,
     );
     assert!(
-        gauge::generated::Permission::query_used(&system, valence::use_!(r"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+        gauge::generated::Permission::query(&system, valence::use_!(r"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
             .where_name(valence::StringPredicate::Equals(reveal_name.clone()))
             .limit(1)
             .first()
@@ -292,7 +292,7 @@ async fn system_owner_put_skips_bundle_happy() {
         ResourceAction::Maintain,
     );
     assert!(
-        gauge::generated::Permission::query_used(&system, valence::use_!(r"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+        gauge::generated::Permission::query(&system, valence::use_!(r"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
             .where_name(valence::StringPredicate::Equals(maintain_name))
             .limit(1)
             .first()

@@ -46,8 +46,8 @@ pub const NEUTRINO_SECRET: ResourceKindDescriptor = ResourceKindDescriptor {
 /// Coarse create gate for secrets.
 ///
 /// `rule_name` keeps the `gauge::` namespace it had when Gauge owned this const, since
-/// Valence privacy rule names are matched by string. Neutrino's own schemas wire
-/// [`crate::privacy_policies::CREATE_NEUTRINO_SECRETS_GATE`] instead, which checks the
+/// Valence privacy rule names are matched by string. Neutrino's own schemas use
+/// `privacy_policies::CREATE_NEUTRINO_SECRETS_GATE` instead, which checks the
 /// same permission name through raw Gauge walks.
 pub const CREATE_NEUTRINO_SECRETS: StaticPermissionGate = StaticPermissionGate {
     rule_name: "gauge::CREATE_NEUTRINO_SECRETS",
@@ -87,7 +87,7 @@ pub async fn create_initial_neutrino_groups(v: &Valence) -> Result<(), ResourceP
 ///
 /// Returns [`NeutrinoError::Config`] when the catalog domain row is missing.
 pub async fn assert_neutrino_catalog_seeded(v: &Valence) -> NeutrinoResult<()> {
-    let exists = PermissionDomain::get_used(NEUTRINO_CATALOG_DOMAIN_ID, v, valence::use_!(r"In **Gauge permissions**, we **load Permission Domain** so the application can decide what to do next in this workflow. The result is used by **Gauge permissions** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
+    let exists = PermissionDomain::get(NEUTRINO_CATALOG_DOMAIN_ID, v, valence::use_!(r"In **Gauge permissions**, we **load Permission Domain** so the application can decide what to do next in this workflow. The result is used by **Gauge permissions** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
         .await
         .map_err(|e| NeutrinoError::service("assert_neutrino_catalog_seeded", e))?
         .is_some();

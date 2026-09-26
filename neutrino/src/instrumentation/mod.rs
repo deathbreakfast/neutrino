@@ -1,4 +1,4 @@
-//! Neutrino secret access Spectra telemetry (UC1 + UC3) and Valence audit helpers.
+//! Neutrino secret access Spectra telemetry (metrics and events) and Valence audit helpers.
 
 pub mod access;
 mod audit;

@@ -135,21 +135,21 @@ async fn seed_user(id: &str, v: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert_used(id, user, v, valence::use_!(r"When **vault host** needs to persist work, we **save User** so the next step in that feature can continue with the latest values. People and services allowed for **vault host** use this data for that workflow—not as a general export of unrelated personal fields."))
+    lepton::generated::User::upsert(id, user, v, valence::use_!(r"When **vault host** needs to persist work, we **save User** so the next step in that feature can continue with the latest values. People and services allowed for **vault host** use this data for that workflow—not as a general export of unrelated personal fields."))
         .await
         .expect("upsert user");
 }
 
 async fn add_user_to_creators_group(user_id: &str, v: &Valence) {
-    let group = gauge::generated::PermissionGroup::get_used("neutrino.secret.creators", v, valence::use_!(r"In **vault host**, we **load Permission Group** so the application can decide what to do next in this workflow. The result is used by **vault host** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
+    let group = gauge::generated::PermissionGroup::get("neutrino.secret.creators", v, valence::use_!(r"In **vault host**, we **load Permission Group** so the application can decide what to do next in this workflow. The result is used by **vault host** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
         .await
         .expect("get creators group")
         .expect("neutrino.secret.creators");
-    let user = lepton::generated::User::get_used(user_id, v, valence::use_!(r"In **vault host**, we **load User** so the application can decide what to do next in this workflow. The result is used by **vault host** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
+    let user = lepton::generated::User::get(user_id, v, valence::use_!(r"In **vault host**, we **load User** so the application can decide what to do next in this workflow. The result is used by **vault host** logic—not necessarily displayed on a page unless that feature’s UI shows it."))
         .await
         .expect("get user")
         .expect("user row");
-    let principal = gauge::generated::PermissionUserPrincipal::upsert_used(
+    let principal = gauge::generated::PermissionUserPrincipal::upsert(
         &format!("user:{user_id}"),
         gauge::generated::PermissionUserPrincipal::new(
             user.id().expect("user id").clone(),
@@ -162,7 +162,11 @@ async fn add_user_to_creators_group(user_id: &str, v: &Valence) {
     .await
     .expect("upsert principal");
     group
-        .relate_to_member_record(principal.id().expect("principal id"), v)
+        .relate_to_member_record(
+            principal.id().expect("principal id"),
+            v,
+            valence::use_!(r"When this vault host **adds a user to the secret creators group**, we **write the member edge** so they can create Neutrino secrets in the demo. The host uses that membership for the bootstrap session."),
+        )
         .await
         .expect("relate member");
 }

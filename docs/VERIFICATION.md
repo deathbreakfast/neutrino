@@ -102,6 +102,17 @@ cargo test -p neutrino --features rbac-tests --test security_contract --test acc
 cargo test -p neutrino-spectra-telemetry
 ```
 
+HSM master-key adapters (mock unit tests always; SoftHSM/swtpm suites are env-gated):
+
+```bash
+# Needs libtss2 for `hsm-tpm` (see docs/hsm-local-setup.md).
+cargo test -p neutrino --features 'hsm-pkcs11,hsm-tpm' --lib
+cargo test -p neutrino --features hsm-pkcs11 --test hsm_pkcs11_integration
+cargo test -p neutrino --features hsm-tpm --test hsm_tpm_integration
+# SoftHSM: NEUTRINO_PKCS11_INTEGRATION=1 + PKCS#11 env from docs/hsm-local-setup.md
+# swtpm:   NEUTRINO_TPM_INTEGRATION=1 + TPM env from docs/hsm-local-setup.md
+```
+
 ### neutrino-spectra-telemetry
 
 Parent CI already runs `cargo test -p neutrino-spectra-telemetry`. Focused

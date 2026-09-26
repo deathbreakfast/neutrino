@@ -27,7 +27,7 @@ valence_schema! {
                 required: true,
             },
             source: {
-                r#type: FieldType::Enum(&["env", "kms"]),
+                r#type: FieldType::Enum(&["env", "kms", "hsm"]),
                 required: true,
                 default: "env",
             },

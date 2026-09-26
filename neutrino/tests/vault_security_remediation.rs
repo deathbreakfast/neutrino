@@ -99,6 +99,34 @@ async fn reveal_at_version_archived_denied_active_allowed() {
         .await
         .expect("rotate");
 
+    // Rotate leaves the prior version in Grace (still revealable). Archive it
+    // explicitly so this remediation check covers the archived deny path.
+    {
+        use neutrino::generated::{NeutrinoSecretVersion, NeutrinoSecretVersionStatus};
+        use valence::{RecordId, RecordPredicate};
+        let secret_rid = RecordId::new("neutrino_secret", created.id.as_str());
+        let rows = NeutrinoSecretVersion::query(
+            store.valence.as_ref(),
+            valence::use_!(r"**Test:** Fixture **Neutrino Secret Version** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."),
+        )
+        .where_secret_id(RecordPredicate::Equals(secret_rid))
+        .await
+        .expect("list versions");
+        let v1 = rows
+            .into_iter()
+            .find(|r| *r.version_num() == 1)
+            .expect("v1 row");
+        v1.get_mutable(
+            store.valence.as_ref(),
+            valence::use_!(r"**Test:** Fixture **Neutrino Secret Version** update for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."),
+        )
+        .set_status(NeutrinoSecretVersionStatus::Archived)
+        .expect("set archived")
+        .commit()
+        .await
+        .expect("commit archived");
+    }
+
     let archived_err = store
         .reveal_at_version(&SecretId(created.id.clone()), 1)
         .await

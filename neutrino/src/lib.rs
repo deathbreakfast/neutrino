@@ -15,7 +15,7 @@
 //! | Product / UI vault API | [`vault`] (feature `ssr`) |
 //! | Gauge per-secret authz | [`actor_can_secret`], [`ensure_secret_permission_bundle`] |
 //! | Gauge bootstrap + create gate | [`create_initial_neutrino_groups`], [`CREATE_NEUTRINO_SECRETS`] |
-//! | Master key env | [`key_source`] / [`MasterKeyError`] |
+//! | Master key env / KMS / HSM unwrap | [`key_source`] / [`resolve_master_key`] / [`MasterKeyError`] |
 //! | Bootstrap env classification / seed | [`bootstrap_trust`], [`bootstrap_seeder`] |
 //! | Low-level seal/unseal | [`crypto`] |
 //! | Typed failures | [`NeutrinoError`] / [`NeutrinoResult`] |
@@ -49,8 +49,16 @@
 //! - **Env secret seeder** — Copies bootstrap-classified env material into the
 //!   sealed store on first boot and emits `scoped_credentials_refs_json`.
 //!   [Get started](#bootstrap-env-seed).
-//! - **Master key resolution** — Loads `NEUTRINO_MASTER_KEY` as typed
-//!   [`MasterKeyError`]-bearing bytes before any seal or reveal.
+//! - **Master key resolution** — Loads the process master key via [`resolve_master_key`]
+//!   (`NEUTRINO_MASTER_KEY` by default, or KMS/HSM unwrap when `NEUTRINO_KEY_SOURCE` and a
+//!   matching `kms-*` / `hsm-*` feature are set) as typed [`MasterKeyError`]-bearing bytes
+//!   before seal or reveal.
+//!   [Get started](#resolve-master-key).
+//! - **KMS master-key sources** — Optional AWS KMS, GCP KMS, or Vault Transit unwrap of a
+//!   wrapped master key (`NEUTRINO_MASTER_KEY_WRAPPED`). Customer secrets stay in Valence;
+//!   KMS only protects the process key. [Get started](#resolve-master-key).
+//! - **Hardware master-key unwrap** — Resolve the process master key via PKCS#11 or TPM 2.0
+//!   (`hsm-pkcs11` / `hsm-tpm`, RSA-OAEP unwrap of `NEUTRINO_MASTER_KEY_WRAPPED`).
 //!   [Get started](#resolve-master-key).
 //! - **Secret access model** — Who can browse, reveal, edit, and delete a secret,
 //!   what Super User can always do, and which Gauge objects a new secret creates.
@@ -65,10 +73,15 @@
 //! - **Control-plane secret lane** — Boot jobs and background workers read secrets through
 //!   a System-from-start handle that skips session Gauge checks by design.
 //!   [Get started](#control-plane-secret-lane).
+//! - **Short-lived secret lease** — [`secret_store::SecretStore::lease`] returns
+//!   Zeroizing plaintext for a TTL (Reveal-gated), for env injection on apply paths.
+//!   [`secret_store::SecretStore::extend_grace`] keeps a prior version leaseable after a failed apply.
+//!   [Get started](#lease-secret).
 //!
 //! Product vault HTTP-facing helpers live in [`vault`]; per-secret Gauge checks use
-//! [`actor_can_secret`]. Low-level seal/unseal is in [`crypto`]. Backend selection uses
-//! [`secret_backend`]; env key classification uses [`bootstrap_trust`].
+//! [`actor_can_secret`]. Low-level seal/unseal is in [`crypto`]. Backend kind selection uses
+//! [`secret_backend`] (Valence sealed store by default; cloud/external kinds fail closed);
+//! env key classification uses [`bootstrap_trust`].
 //!
 //! ## Getting started
 //!
@@ -337,6 +350,59 @@
 //! Errors aggregate authz and store failures via [`NeutrinoError`]. Next: [reveal](#reveal-secret)
 //! the new version, or [delete](#delete-secret) when retiring the credential.
 //!
+//! ## Lease secret
+//!
+//! A lease hands short-lived plaintext to a named consumer (`leased_to`) for env injection
+//! or Parton Deploy. It is Reveal-gated like vault reveal, returns [`secret_store::SecretLease`]
+//! (`Zeroizing` plaintext, `lease_id`, `expires_at`, version), and never logs the bytes.
+//! After rotate, the prior version can sit in `grace` so a failed apply can still lease it
+//! via [`secret_store::SecretStore::extend_grace`]. Call once when the worker applies a
+//! rotate event (Boson / control-plane System); interactive UI should keep using reveal.
+//!
+//! **Prerequisites:** authorized Reveal (or System apply) actor; an active or grace version.
+//!
+//! ```ignore
+//! use neutrino::secret_store::{LeaseRequest, SecretStore};
+//! use std::time::Duration;
+//!
+//! let lease = store
+//!     .lease(LeaseRequest {
+//!         secret_id: secret_ref.id.clone(),
+//!         version: None,
+//!         leased_to: format!("gluon-agent-{cell}"),
+//!         ttl: Duration::from_secs(300),
+//!     })
+//!     .await?;
+//! assert!(!lease.plaintext.is_empty());
+//! // Assemble BOOTSTRAP_DB_LOGICALS_JSON; never log plaintext.
+//! ```
+//!
+//! When Deploy or db-ready fails after rotate, extend grace so the prior version stays
+//! leaseable while operators investigate (no auto-unrotate):
+//!
+//! ```ignore
+//! use neutrino::secret_store::{LeaseRequest, SecretId, SecretStore};
+//! use std::time::Duration;
+//!
+//! store
+//!     .extend_grace(&secret_ref.id, 86_400, "gluon.neutrino_rotation_apply")
+//!     .await?;
+//! let prior = store
+//!     .lease(LeaseRequest {
+//!         secret_id: secret_ref.id.clone(),
+//!         version: Some(prior_version),
+//!         leased_to: format!("gluon-agent-{cell}"),
+//!         ttl: Duration::from_secs(300),
+//!     })
+//!     .await?;
+//! assert!(!prior.plaintext.is_empty());
+//! ```
+//!
+//! Archived-only versions and missing ids return [`NeutrinoError::InvalidState`] /
+//! [`NeutrinoError::NotFound`]. After a DB-scoped vault rotate, the product app publishes
+//! Photon `neutrino.secret.rotated` so Gluon can lease and Deploy updated credentials.
+//! Interactive UI continues at [reveal](#reveal-secret).
+//!
 //! ## Delete secret
 //!
 //! Secret deletion is the permanent retirement path for a stored credential. It removes
@@ -392,36 +458,92 @@
 //!
 //! ## Resolve master key
 //!
-//! [`master_key_from_env`] loads `NEUTRINO_MASTER_KEY` before any seal or reveal runs.
-//! The helper accepts 32-byte hex (or a weak UTF-8 escape when explicitly allowed) and
-//! returns typed [`MasterKeyError`] when the variable is missing, empty, or malformed.
-//! Resolve during process startup before constructing [`ValenceSealedStore`] or calling
-//! [`seed_bootstrap_secrets_from_env`].
+//! [`resolve_master_key`] loads the process master key before any seal or reveal.
+//! Default source is `NEUTRINO_KEY_SOURCE=env` (or unset): 32-byte hex via
+//! `NEUTRINO_MASTER_KEY`, or a weak UTF-8 escape when explicitly allowed. With a
+//! `kms-*` or `hsm-*` Cargo feature, set `NEUTRINO_KEY_SOURCE` to `aws-kms`, `gcp-kms`,
+//! `vault-transit`, `pkcs11`, or `tpm` and provide `NEUTRINO_MASTER_KEY_WRAPPED` plus
+//! provider env vars — the provider unwraps the master key only; customer secrets remain
+//! in Valence. Resolve during process startup before constructing [`ValenceSealedStore`]
+//! or calling [`seed_bootstrap_secrets_from_env`]. [`master_key_from_env`] remains the
+//! env-only helper.
 //!
-//! **Prerequisites:** `NEUTRINO_MASTER_KEY` set in the process environment.
+//! **Prerequisites:** `NEUTRINO_MASTER_KEY` set (env source), or wrapped key + provider
+//! config when using a KMS or HSM source.
 //!
 //! ```ignore
-//! use neutrino::master_key_from_env;
+//! use neutrino::resolve_master_key;
 //!
 //! // std::env::set_var("NEUTRINO_MASTER_KEY", "<64 hex chars>");
-//! let key = master_key_from_env()?;
-//! assert!(key.len() == 32 || key.len() > 0);
-//! assert!(key.len() > 0);
+//! let key = resolve_master_key().await?;
+//! assert_eq!(key.len(), 32);
+//! ```
+//!
+//! KMS variant (`feature = "kms-aws"`): set `NEUTRINO_KEY_SOURCE=aws-kms`,
+//! `NEUTRINO_MASTER_KEY_WRAPPED` (base64 ciphertext), and `NEUTRINO_AWS_KMS_KEY_ID`, then call
+//! the same [`resolve_master_key`].
+//!
+//! ```ignore
+//! // cargo build -p neutrino --features kms-aws
+//! // std::env::set_var("NEUTRINO_KEY_SOURCE", "aws-kms");
+//! // std::env::set_var("NEUTRINO_MASTER_KEY_WRAPPED", "<base64>");
+//! // std::env::set_var("NEUTRINO_AWS_KMS_KEY_ID", "alias/neutrino");
+//! use neutrino::resolve_master_key;
+//!
+//! let key = resolve_master_key().await?;
+//! assert_eq!(key.len(), 32);
+//! ```
+//!
+//! PKCS#11 variant (`feature = "hsm-pkcs11"`): set `NEUTRINO_KEY_SOURCE=pkcs11`,
+//! `NEUTRINO_MASTER_KEY_WRAPPED` (RSA-OAEP ciphertext of a 32-byte MEK),
+//! `NEUTRINO_PKCS11_MODULE`, `NEUTRINO_PKCS11_PIN`, and `NEUTRINO_PKCS11_KEY_LABEL`.
+//!
+//! ```ignore
+//! // cargo build -p neutrino --features hsm-pkcs11
+//! // std::env::set_var("NEUTRINO_KEY_SOURCE", "pkcs11");
+//! // std::env::set_var("NEUTRINO_MASTER_KEY_WRAPPED", "<base64>");
+//! // std::env::set_var("NEUTRINO_PKCS11_MODULE", "/usr/lib/softhsm/libsofthsm2.so");
+//! // std::env::set_var("NEUTRINO_PKCS11_PIN", "<pin>");
+//! // std::env::set_var("NEUTRINO_PKCS11_KEY_LABEL", "neutrino-mek");
+//! use neutrino::resolve_master_key;
+//!
+//! let key = resolve_master_key().await?;
+//! assert_eq!(key.len(), 32);
+//! assert_eq!(key.provenance().source_label(), "hsm");
+//! ```
+//!
+//! TPM variant (`feature = "hsm-tpm"`): set `NEUTRINO_KEY_SOURCE=tpm`,
+//! `NEUTRINO_MASTER_KEY_WRAPPED`, `NEUTRINO_TPM_TCTI`, and `NEUTRINO_TPM_KEY_HANDLE`.
+//!
+//! ```ignore
+//! // cargo build -p neutrino --features hsm-tpm
+//! // std::env::set_var("NEUTRINO_KEY_SOURCE", "tpm");
+//! // std::env::set_var("NEUTRINO_MASTER_KEY_WRAPPED", "<base64>");
+//! // std::env::set_var("NEUTRINO_TPM_TCTI", "device:/dev/tpmrm0");
+//! // std::env::set_var("NEUTRINO_TPM_KEY_HANDLE", "0x81000001");
+//! use neutrino::resolve_master_key;
+//!
+//! let key = resolve_master_key().await?;
+//! assert_eq!(key.len(), 32);
 //! ```
 //!
 //! On failure, inspect [`MasterKeyError`] variants (`NotSet`, `Empty`, `InvalidHex`,
-//! `WeakKeyRejected`). Next: [Gauge bootstrap](#gauge-bootstrap-at-boot) if not done,
-//! then [bootstrap env seed](#bootstrap-env-seed).
+//! `WeakKeyRejected`, `Config`, `Provider`, `Unavailable`, `FeatureDisabled`). Next:
+//! [Gauge bootstrap](#gauge-bootstrap-at-boot) if not done, then
+//! [bootstrap env seed](#bootstrap-env-seed).
 //!
 //! ## Feature flags
 //!
 //! | Flag | What it enables |
 //! |------|-----------------|
-//! | *(default)* | Crypto helpers, [`key_source`], [`bootstrap_trust`], [`secret_backend`] stubs |
+//! | *(default)* | Crypto helpers, [`key_source`], [`bootstrap_trust`], [`secret_backend`] kind selector (Valence sealed store default; cloud kinds unsupported) |
 //! | `ssr` | Valence models, [`ValenceSealedStore`], [`vault`], Gauge wiring, instrumentation |
 //! | `rbac-tests` | Extra Gauge RBAC integration tests (`ssr` + lepton/gauge graph) |
-//! | `kms-aws` / `kms-gcp` / `kms-vault-transit` | Stub Cargo gates for future KMS key-source work |
-//! | `hsm-pkcs11` / `hsm-tpm` | Stub Cargo gates for future HSM key sources |
+//! | `kms-aws` | AWS KMS [`KeySource`] unwrap (`AwsKmsKeySource`) |
+//! | `kms-gcp` | GCP Cloud KMS [`KeySource`] unwrap |
+//! | `kms-vault-transit` | HashiCorp Vault Transit [`KeySource`] unwrap |
+//! | `hsm-pkcs11` | PKCS#11 `KeySource` unwrap (`Pkcs11KeySource`) |
+//! | `hsm-tpm` | TPM 2.0 `KeySource` unwrap (`TpmKeySource`) |
 //!
 //! ## Examples
 //!
@@ -434,7 +556,7 @@
 //!   (also `vault_authz_contract`, `vault_gauge_authz` with `rbac-tests`)
 //! - Host walkthrough: `CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=target-neutrino cargo run -p vault-host`
 //!
-//! Master key env errors use [`MasterKeyError`]. Store and vault APIs return
+//! Master key errors use [`MasterKeyError`]. Store and vault APIs return
 //! [`NeutrinoResult`]. Leptos server fns in `neutrino-app` map failures to `ServerFnError`.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -455,6 +577,7 @@
 
 #[cfg(feature = "ssr")]
 mod canonical_secret_id;
+pub mod db_scope;
 #[cfg(feature = "ssr")]
 pub mod embedded_surreal;
 /// Generated Valence models (schema codegen). Prefer [`vault`] / [`sealed_store`] APIs.
@@ -464,7 +587,11 @@ pub mod generated;
 #[cfg(feature = "ssr")]
 pub mod instrumentation;
 #[cfg(feature = "ssr")]
+mod master_key_meta;
+#[cfg(feature = "ssr")]
 mod privacy_policies;
+#[cfg(feature = "photon")]
+pub mod rotation_event;
 #[cfg(feature = "ssr")]
 mod schemas;
 #[cfg(feature = "ssr")]
@@ -501,14 +628,25 @@ pub use bootstrap_seeder::{
     SeededBootstrapSecrets,
 };
 pub use bootstrap_trust::{classify_env_key, SecretLifecycleClass};
+pub use db_scope::is_db_scoped_creds_path;
 pub use error::{NeutrinoError, NeutrinoResult};
-pub use key_source::{master_key_from_env, MasterKeyError};
+pub use key_source::{
+    clear_master_key_cache, master_key_from_env, resolve_master_key, EnvKeySource, HsmBackend,
+    KeySource, KeySourceKind, MasterKeyError, MasterKeyProvenance, ResolvedMasterKey,
+    WrappedKeyDecryptor,
+};
+#[cfg(feature = "photon")]
+pub use rotation_event::{
+    publish_if_db_scoped_secret_rotated, publish_neutrino_secret_rotated,
+    publish_neutrino_secret_rotated_with_scope, NeutrinoSecretRotated,
+};
 #[cfg(feature = "ssr")]
 pub use scope_prefix::scope_path_matches_prefix;
 #[cfg(feature = "ssr")]
 pub use sealed_store::{list_secrets, ListedSecret, ValenceSealedStore};
 pub use secret_backend::{
-    secret_backend_kind_from_env, uses_neutrino_sealed_store, SecretBackendKind,
+    ensure_secret_backend_supported, secret_backend_kind_from_env, uses_neutrino_sealed_store,
+    SecretBackendKind,
 };
 pub use secret_store::{SecretId, SecretRef, SecretVersionId};
 #[cfg(feature = "ssr")]

@@ -56,6 +56,36 @@ pub struct RevealedSecret {
     pub created_at: DateTime<Utc>,
 }
 
+/// Request a short-lived lease of plaintext for env injection / apply paths.
+#[derive(Debug, Clone)]
+pub struct LeaseRequest {
+    /// Secret to lease.
+    pub secret_id: SecretId,
+    /// Pin a version when set; otherwise the current active version (or grace if requested).
+    pub version: Option<SecretVersionId>,
+    /// Subject label recorded on the lease (e.g. `gluon-agent-{cell}`).
+    pub leased_to: String,
+    /// How long the caller may treat the plaintext as valid.
+    pub ttl: std::time::Duration,
+}
+
+/// Short-lived plaintext handle from [`SecretStore::lease`].
+#[derive(Debug, Clone)]
+pub struct SecretLease {
+    /// Opaque lease id (correlation / audit).
+    pub lease_id: String,
+    /// Secret id.
+    pub id: SecretId,
+    /// Version that was leased.
+    pub version: SecretVersionId,
+    /// Decrypted plaintext; zeroized on drop.
+    pub plaintext: Zeroizing<Vec<u8>>,
+    /// Subject the lease was issued to.
+    pub leased_to: String,
+    /// When this lease should be considered expired.
+    pub expires_at: DateTime<Utc>,
+}
+
 /// Backend-agnostic contract for storing, reading, and rotating secrets.
 ///
 /// [`crate::sealed_store::ValenceSealedStore`] is the canonical Valence-backed
@@ -65,7 +95,7 @@ pub struct RevealedSecret {
 /// # Errors
 ///
 /// Methods return [`NeutrinoResult`]. Configuration failures from
-/// [`crate::key_source::master_key_from_env`] surface as
+/// [`crate::key_source::resolve_master_key`] surface as
 /// [`crate::NeutrinoError::Config`] before they wrap into service failures
 /// inside the sealed store.
 ///
@@ -95,6 +125,10 @@ pub trait SecretStore: Send + Sync {
     }
 
     /// Replace ciphertext with a new version row; bumps [`SecretRef::version`]. Default: not supported.
+    ///
+    /// The previous version is left in `grace` status so consumers can still lease it during
+    /// apply windows. Call [`extend_grace`](Self::extend_grace) after a failed apply to keep
+    /// that prior version leaseable.
     async fn rotate(
         &self,
         _id: &SecretId,
@@ -102,6 +136,24 @@ pub trait SecretStore: Send + Sync {
         _actor: &str,
     ) -> NeutrinoResult<SecretRef> {
         Err(crate::NeutrinoError::unsupported("rotate"))
+    }
+
+    /// Decrypt an `active` or `grace` version for short-lived use (Reveal-gated).
+    ///
+    /// Default: not supported.
+    async fn lease(&self, _req: LeaseRequest) -> NeutrinoResult<SecretLease> {
+        Err(crate::NeutrinoError::unsupported("lease"))
+    }
+
+    /// Mark the version immediately prior to `current_version` as `grace` so it remains
+    /// leaseable after a failed consumer apply. Default: not supported.
+    async fn extend_grace(
+        &self,
+        _id: &SecretId,
+        _grace_secs: u64,
+        _actor: &str,
+    ) -> NeutrinoResult<()> {
+        Err(crate::NeutrinoError::unsupported("extend_grace"))
     }
 
     /// Health check for wiring tests.

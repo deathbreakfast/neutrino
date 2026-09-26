@@ -1,4 +1,4 @@
-//! Emit UC1/UC3 rows for secret store access.
+//! Emit Spectra metric and event rows for secret store access.
 
 use std::cell::RefCell;
 
@@ -32,7 +32,7 @@ pub fn current_secret_access_caller() -> String {
 }
 
 /// Stable viewer identity label derived from a Valence [`Actor`], used to key
-/// UC1/UC3 telemetry rows.
+/// Spectra metric/event telemetry rows.
 pub fn viewer_key_from_actor(actor: &Actor) -> String {
     match actor {
         Actor::User { user_id } => user_id.clone(),
@@ -73,7 +73,7 @@ impl SecretAccessRecord {
     }
 }
 
-/// Record UC1 counter + UC3 event for a secret access attempt.
+/// Record Spectra counter + event for a secret access attempt.
 pub fn record_secret_access(record: SecretAccessRecord) {
     try_record_counter(
         "neutrino_secret_access",

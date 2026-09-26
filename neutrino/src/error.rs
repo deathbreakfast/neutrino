@@ -31,6 +31,13 @@ pub enum NeutrinoError {
         /// Human-readable reason (no secret material).
         message: String,
     },
+    /// Secret or version is in a state that blocks the operation (e.g. archived-only).
+    InvalidState {
+        /// Operation label (e.g. `lease`, `extend_grace`).
+        operation: &'static str,
+        /// Human-readable reason (no secret material).
+        message: String,
+    },
     /// Master-key / backend configuration failure.
     Config(MasterKeyError),
     /// Seal / unseal / key-derivation failure (no key material in messages).
@@ -40,9 +47,9 @@ pub enum NeutrinoError {
         /// Source error.
         source: anyhow::Error,
     },
-    /// Trait default or backend that does not implement an operation.
+    /// Operation or backend kind that is not supported in this deployment.
     Unsupported {
-        /// Operation label (e.g. `delete`, `rotate`).
+        /// Operation or selector label (e.g. `delete`, `NEUTRINO_SECRET_BACKEND=cloud|…`).
         operation: &'static str,
     },
     /// Underlying Valence, Gauge, audit, or other service failure.
@@ -65,15 +72,15 @@ impl fmt::Display for NeutrinoError {
                 write!(f, "not authorized to {operation}")
             }
             Self::Validation { message, .. } => write!(f, "{message}"),
+            Self::InvalidState { operation, message } => {
+                write!(f, "neutrino {operation}: {message}")
+            }
             Self::Config(e) => write!(f, "{e}"),
             Self::Crypto { operation, source } => {
                 write!(f, "crypto {operation} failed: {source}")
             }
             Self::Unsupported { operation } => {
-                write!(
-                    f,
-                    "SecretStore::{operation} is not implemented for this backend"
-                )
+                write!(f, "{operation} is not supported")
             }
             Self::Service { operation, source } => {
                 write!(f, "neutrino {operation} failed: {source}")
@@ -112,6 +119,14 @@ impl NeutrinoError {
     pub(crate) fn validation(field: &'static str, message: impl Into<String>) -> Self {
         Self::Validation {
             field,
+            message: message.into(),
+        }
+    }
+
+    #[cfg_attr(not(feature = "ssr"), allow(dead_code))]
+    pub(crate) fn invalid_state(operation: &'static str, message: impl Into<String>) -> Self {
+        Self::InvalidState {
+            operation,
             message: message.into(),
         }
     }
@@ -159,6 +174,10 @@ mod tests {
             &validation,
             NeutrinoError::Validation { field: "Name", .. }
         ));
+
+        let invalid = NeutrinoError::invalid_state("lease", "archived only");
+        assert!(invalid.to_string().contains("lease"));
+        assert!(invalid.to_string().contains("archived"));
 
         let config = NeutrinoError::from(MasterKeyError::NotSet);
         assert!(config.to_string().contains("NEUTRINO_MASTER_KEY"));

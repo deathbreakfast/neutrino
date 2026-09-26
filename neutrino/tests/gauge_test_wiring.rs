@@ -31,21 +31,21 @@ pub async fn seed_user(id: &str, email: &str, v: &Valence) {
         now,
     )
     .expect("build user");
-    lepton::generated::User::upsert_used(id, user, v, valence::use_!(r"**Test:** Fixture **User** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    lepton::generated::User::upsert(id, user, v, valence::use_!(r"**Test:** Fixture **User** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("upsert user");
 }
 
 pub async fn add_user_to_group(user_id: &str, group_id: &str, v: &Valence) {
-    let group = gauge::generated::PermissionGroup::get_used(group_id, v, valence::use_!(r"**Test:** Fixture **Permission Group** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    let group = gauge::generated::PermissionGroup::get(group_id, v, valence::use_!(r"**Test:** Fixture **Permission Group** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("get group")
         .unwrap_or_else(|| panic!("group {group_id} missing"));
-    let user = lepton::generated::User::get_used(user_id, v, valence::use_!(r"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+    let user = lepton::generated::User::get(user_id, v, valence::use_!(r"**Test:** Fixture **User** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
         .await
         .expect("get user")
         .expect("user row");
-    let principal = gauge::generated::PermissionUserPrincipal::upsert_used(
+    let principal = gauge::generated::PermissionUserPrincipal::upsert(
         &format!("user:{user_id}"),
         gauge::generated::PermissionUserPrincipal::new(
             user.id().expect("user id").clone(),
@@ -58,7 +58,7 @@ pub async fn add_user_to_group(user_id: &str, group_id: &str, v: &Valence) {
     .await
     .expect("upsert principal");
     group
-        .relate_to_member_record(principal.id().expect("principal id"), v)
+        .relate_to_member_record(principal.id().expect("principal id"), v, valence::use_!(r"**Test:** When an operator **adds a group member** in **Gauge**, we **write the member edge** so that principal inherits the group's grants. Operators see the updated members on the group detail."))
         .await
         .expect("relate member");
 }

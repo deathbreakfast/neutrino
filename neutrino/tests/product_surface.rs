@@ -306,8 +306,6 @@ fn permission_manifest_secrets_domain_happy_path() {
         "SecretsWrite",
         "SecretsRotate",
         "SecretsGrantManage",
-        "SecretsAuditView",
-        "SecretsMasterKeyManage",
         "UfPermissionManifest",
     ] {
         assert!(
@@ -315,6 +313,14 @@ fn permission_manifest_secrets_domain_happy_path() {
             "NeutrinoPermission manifest missing `{needle}`"
         );
     }
+    assert!(
+        !perms.contains("SecretsAuditView"),
+        "SecretsAuditView must stay out of the manifest until an audit UI ships"
+    );
+    assert!(
+        !perms.contains("SecretsMasterKeyManage"),
+        "SecretsMasterKeyManage must stay out of the manifest until reseal UI ships"
+    );
 }
 
 #[test]
@@ -352,7 +358,7 @@ fn secrets_list_drop_testid_sad_path() {
 }
 
 #[test]
-fn acl_placeholder_page_happy_path() {
+fn acl_manage_page_happy_path() {
     let Some(page) = read_app("pages/acl_manage.rs") else {
         return;
     };

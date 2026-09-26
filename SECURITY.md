@@ -38,7 +38,8 @@ grants on the store's request actor (`actor_can_secret` / Valence privacy):
 - Super User (`super_user_group`) as unconditional break-glass
 
 Ordinary `SecretsReveal` holders without a per-secret Reveal grant are **denied**
-(fail closed). The ACL manage page remains a placeholder for fine-grained editing.
+(fail closed). Operators manage fine-grained grants on `/secrets/acl`
+(`AclManagePage`: list, grant, and revoke per-secret Gauge actions).
 
 `put_or_reuse` on an existing `name`+`scope_path` requires Edit (Gauge) before
 decrypt/rotate — `CreateNeutrinoSecrets` alone does not authorize overwriting
@@ -64,9 +65,29 @@ Prefix filtering is not a Gauge View check — coarse `SecretsRead` still applie
 
 ## Master key
 
-`NEUTRINO_MASTER_KEY` must be 64 hex characters (256-bit) in production. Non-hex
-UTF-8 keys require explicit `NEUTRINO_ALLOW_WEAK_MASTER_KEY=1` (non-production
-only).
+By default Neutrino loads the process master key from `NEUTRINO_MASTER_KEY`
+(64 hex characters / 256-bit in production). Non-hex UTF-8 keys require
+`NEUTRINO_ALLOW_WEAK_MASTER_KEY=1` (non-production only).
+
+Optional KMS or HSM unwrap (`NEUTRINO_KEY_SOURCE=aws-kms|gcp-kms|vault-transit|pkcs11|tpm`)
+uses `NEUTRINO_MASTER_KEY_WRAPPED` plus provider credentials / token config. Enable the
+matching Cargo feature (`kms-aws`, `kms-gcp`, `kms-vault-transit`, `hsm-pkcs11`, or
+`hsm-tpm`). The provider protects the process master key only — customer secrets stay
+sealed in Valence. Grant cloud IAM (or Vault policy) Decrypt-only on that single key;
+for PKCS#11/TPM, wrap the MEK to the token/TPM public key offline (RSA-OAEP SHA-256).
+
+| Source | Required env (beyond `NEUTRINO_KEY_SOURCE`) |
+|--------|---------------------------------------------|
+| `env` (default) | `NEUTRINO_MASTER_KEY` |
+| `aws-kms` | `NEUTRINO_MASTER_KEY_WRAPPED` (base64), `NEUTRINO_AWS_KMS_KEY_ID`; AWS default credential chain |
+| `gcp-kms` | `NEUTRINO_MASTER_KEY_WRAPPED` (base64), `NEUTRINO_GCP_KMS_KEY_NAME`, `NEUTRINO_GCP_ACCESS_TOKEN` |
+| `vault-transit` | `NEUTRINO_MASTER_KEY_WRAPPED` (Transit ciphertext), `NEUTRINO_VAULT_ADDR`, `NEUTRINO_VAULT_TOKEN`, `NEUTRINO_VAULT_TRANSIT_KEY` |
+| `pkcs11` | `NEUTRINO_MASTER_KEY_WRAPPED` (base64), `NEUTRINO_PKCS11_MODULE`, `NEUTRINO_PKCS11_PIN`, `NEUTRINO_PKCS11_KEY_LABEL`; optional `NEUTRINO_PKCS11_SLOT`, `NEUTRINO_PKCS11_OAEP_HASH` (`sha256` default, `sha1` for SoftHSM+OpenSSL) |
+| `tpm` | `NEUTRINO_MASTER_KEY_WRAPPED` (base64), `NEUTRINO_TPM_TCTI`, `NEUTRINO_TPM_KEY_HANDLE` |
+
+Local SoftHSM / swtpm setup for gated integration tests:
+[`docs/hsm-local-setup.md`](docs/hsm-local-setup.md).
+
 
 ## Archived version reveal
 
@@ -100,6 +121,7 @@ dialog closes.
 
 ## Secret access telemetry
 
-UC3 `neutrino_secret_access_log` events omit `scope_path` and `secret_name` to
-reduce secret metadata exposure in operational logs. Correlation uses `secret_id`,
-`action`, and `version_num` only.
+Spectra event table `neutrino_secret_access_log` rows include `scope_path`, `secret_name`,
+`secret_id`, and `caller` as hashed fingerprints (`h` + hex), not plaintext.
+Rows never carry secret plaintext or ciphertext. Correlation uses hashed
+`secret_id`, plus `action` and `version_num`.
