@@ -36,35 +36,47 @@ fn prepare_test_env() {
     }
 }
 
-async fn system_valence() -> Valence {
+struct SplitValence {
+    system: Valence,
+    gauge: Arc<dyn DatabaseBackend>,
+    neutrino: Arc<dyn DatabaseBackend>,
+}
+
+/// One backend per logical: `default` (lepton), `gauge`, and `neutrino`.
+async fn split_system_valence() -> SplitValence {
     prepare_test_env();
-    let backend: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
+    let default: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
+    let gauge: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
+    let neutrino: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
     let mut router = DatabaseRouter::new();
     register_backend_logical_names(
         &mut router,
-        Arc::clone(&backend),
-        gauge::embedded_surreal::EMBEDDED_SURREAL_LOGICAL_NAMES,
+        Arc::clone(&default),
+        &["default"],
         RegisterBackendLogicalNamesOptions {
             register_alias_engine_id: Some(SQLITE_ENGINE_ID),
         },
     );
-    router.register(
-        router_key(gauge::embedded_surreal::LOGICAL_NAME, SQLITE_ENGINE_ID),
-        backend,
-    );
-    let v = Valence::builder()
+    gauge::embedded_surreal::register_storage(&mut router, Arc::clone(&gauge));
+    neutrino::embedded_surreal::register_storage(&mut router, Arc::clone(&neutrino));
+    let system = Valence::builder()
         .database_router(Arc::new(router))
-        .default_backend_key(router_key(
-            gauge::embedded_surreal::LOGICAL_NAME,
-            MEM_ENGINE_ID,
-        ))
+        .default_backend_key(router_key("default", MEM_ENGINE_ID))
         .with_actor(Actor::System {
             operation: "vault_gauge_authz".to_string(),
         })
         .build()
         .expect("valence");
-    wire_neutrino_gauge_groups(&v).await;
-    v
+    wire_neutrino_gauge_groups(&system).await;
+    SplitValence {
+        system,
+        gauge,
+        neutrino,
+    }
+}
+
+async fn system_valence() -> Valence {
+    split_system_valence().await.system
 }
 
 async fn add_user_to_creators_group(user_id: &str, system: &Valence) {
@@ -201,6 +213,64 @@ async fn put_ensure_creates_gauge_bundle_happy_path() {
             .expect("query reveal permission")
             .is_some(),
         "Reveal permission row must exist for secret bundle"
+    );
+}
+
+fn bare_id(id: &str) -> &str {
+    id.split_once(':').map_or(id, |(_, rest)| rest)
+}
+
+#[tokio::test]
+async fn secret_and_permission_rows_on_separate_backends_happy_path() {
+    let split = split_system_valence().await;
+    let row_id = create_as_creator(&split.system, "split_creator", "split_target").await;
+
+    let reveal_name = permission_name(
+        ResourceKind::NeutrinoSecret,
+        &row_id,
+        ResourceAction::Reveal,
+    );
+    let permission = gauge::generated::Permission::query(&split.system, valence::use_!(r"**Test:** Fixture **Permission** list for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+        .where_name(valence::StringPredicate::Equals(reveal_name))
+        .limit(1)
+        .first()
+        .await
+        .expect("query reveal permission")
+        .expect("reveal permission row");
+    let permission_id = permission.id().expect("permission id").to_string();
+
+    let secret_on = |backend: &Arc<dyn DatabaseBackend>| {
+        let backend = Arc::clone(backend);
+        let id = bare_id(&row_id).to_string();
+        async move {
+            backend
+                .get_record("neutrino_secret", &id)
+                .await
+                .ok()
+                .flatten()
+        }
+    };
+    let permission_on = |backend: &Arc<dyn DatabaseBackend>| {
+        let backend = Arc::clone(backend);
+        let id = bare_id(&permission_id).to_string();
+        async move { backend.get_record("permission", &id).await.ok().flatten() }
+    };
+
+    assert!(
+        secret_on(&split.neutrino).await.is_some(),
+        "secret row on neutrino backend"
+    );
+    assert!(
+        secret_on(&split.gauge).await.is_none(),
+        "secret row must not reach gauge backend"
+    );
+    assert!(
+        permission_on(&split.gauge).await.is_some(),
+        "permission row on gauge backend"
+    );
+    assert!(
+        permission_on(&split.neutrino).await.is_none(),
+        "permission row must not reach neutrino backend"
     );
 }
 
