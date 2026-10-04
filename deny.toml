@@ -47,6 +47,7 @@ highlight = "all"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
+    "https://github.com/deathbreakfast/gauge",
     "https://github.com/unified-field-dev/Spectra",
     "https://github.com/unified-field-dev/chronon",
     "https://github.com/unified-field-dev/chronon-coordinator",
