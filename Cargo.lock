@@ -1678,7 +1678,7 @@ dependencies = [
 [[package]]
 name = "gauge"
 version = "0.1.0"
-source = "git+https://github.com/deathbreakfast/gauge?rev=a7ef3801777c18648db25851410b4b9f8547be0b#a7ef3801777c18648db25851410b4b9f8547be0b"
+source = "git+https://github.com/deathbreakfast/gauge?rev=d3cdc5c09fa12bebcdbb4b4f563e36fded15ea74#d3cdc5c09fa12bebcdbb4b4f563e36fded15ea74"
 dependencies = [
  "anyhow",
  "async-trait",
