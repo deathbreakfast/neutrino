@@ -133,6 +133,10 @@ password-hash = "0.5"
 rand_core = { version = "0.6", features = ["std"] }
 
 # Kits that still declare Valence/Photon/Orbital/Chronon via crates.io — unify onto uf-dev git.
+# Temporary: Gauge's `gauge` logical and register_storage, until it merges on unified-field-dev.
+[patch."https://github.com/unified-field-dev/gauge"]
+gauge = { git = "https://github.com/deathbreakfast/gauge", rev = "a7ef3801777c18648db25851410b4b9f8547be0b" }
+
 [patch.crates-io]
 chronon-core = { git = "https://github.com/unified-field-dev/chronon", branch = "main" }
 chronon-executor = { git = "https://github.com/unified-field-dev/chronon", branch = "main" }

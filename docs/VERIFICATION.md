@@ -183,6 +183,14 @@ Correctness is in-process against an embedded SQLite `:memory:` Valence
 (aligned with Neutrino schema `SQLITE_ENGINE_ID`) with `NEUTRINO_MASTER_KEY`
 set for the test process. Defer any soak unless a shared hot path changes.
 
+Neutrino tables use the `neutrino` logical; Gauge tables use `gauge`. Hosts
+route them with `neutrino::embedded_surreal::register_storage` and
+`gauge::embedded_surreal::register_storage`, one backend each.
+`vault_gauge_authz` runs on that split router, and
+`secret_and_permission_rows_on_separate_backends_happy_path` checks that
+secret rows reach only the Neutrino backend and permission rows only the
+Gauge backend. `gauge_neutrino_distinct_logicals` (lib) guards the names.
+
 ## Notes
 
 - Prefer `cargo test -p neutrino --features ssr --test vault_crud_contract` for
