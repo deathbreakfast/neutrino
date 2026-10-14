@@ -39,7 +39,7 @@ chronon-executor = { workspace = true, optional = true }
 chronon-coordinator-macros = { workspace = true, optional = true }
 chronon-valence-identity = { workspace = true, optional = true }
 aws-config = { version = "1", optional = true }
-aws-sdk-kms = { version = "1", optional = true }
+aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 tokio = { workspace = true, optional = true, features = ["sync", "rt"] }
 cryptoki = { version = "0.12", optional = true }
