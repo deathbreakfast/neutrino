@@ -103,9 +103,17 @@ pub async fn assert_neutrino_catalog_seeded(v: &Valence) -> NeutrinoResult<()> {
     }
 }
 
-/// Service-name prefix of Lepton bot accounts (`bot:<uuid>`), matching
-/// `lepton_identity::bots::BOT_SERVICE_PREFIX`.
-const BOT_SERVICE_PREFIX: &str = "bot:";
+/// Service-name prefixes of Lepton registered service users: `svc:<uuid>`, and the
+/// retired `bot:<uuid>`. Matches `lepton_identity::service_users::is_managed_service_name`.
+const MANAGED_SERVICE_PREFIXES: [&str; 2] = ["svc:", "bot:"];
+
+/// Whether a service name belongs to a registered service user rather than a
+/// built-in one.
+fn is_managed_service_name(name: &str) -> bool {
+    MANAGED_SERVICE_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
 
 /// Bare Valence user id from an audit / owner label (`user:alice` → `alice`).
 #[must_use]
@@ -139,9 +147,10 @@ pub fn auth_valence_for_store(store: &ValenceSealedStore) -> Valence {
 /// label, returns Anonymous so Gauge checks fail closed. When `request_actor` is
 /// absent and `base` is System, preserves System (control-plane from-start lane).
 ///
-/// A `service:bot:…` label always yields Anonymous. Bot accounts hold Gauge
-/// grants, so a bot must reach the vault as its own Valence actor, never by a
-/// label string anyone can write.
+/// A `service:svc:…` label, or the retired `service:bot:…`, always yields
+/// Anonymous. Registered service users hold Gauge grants, so one must reach the
+/// vault as its own Valence actor, never by a label string anyone can write.
+/// Built-in names such as `service:dns` still map to `Actor::ServiceUser`.
 #[must_use]
 pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Valence {
     if let Some(label) = request_actor.filter(|s| !s.trim().is_empty()) {
@@ -163,7 +172,7 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
         }
         if let Some(svc) = label.strip_prefix("service:") {
             let name = svc.trim();
-            if name.starts_with(BOT_SERVICE_PREFIX) {
+            if is_managed_service_name(name) {
                 return base.with_actor(Actor::Anonymous);
             }
             if !name.is_empty() {
@@ -493,13 +502,17 @@ mod tests {
     }
 
     #[test]
-    fn auth_valence_for_label_refuses_bot_label_sad() {
+    fn auth_valence_for_label_refuses_managed_labels_sad() {
         let system = system_valence();
         let user = system.with_actor(Actor::User {
             user_id: "alice".into(),
         });
         for base in [&system, &user] {
             for label in [
+                "service:svc:7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "service: svc:7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "service:svc:",
+                // The retired prefix stays refused.
                 "service:bot:7c9e6679-7425-40de-944b-e07fc1f90ae7",
                 "service: bot:7c9e6679-7425-40de-944b-e07fc1f90ae7",
                 "service:bot:",
@@ -518,6 +531,14 @@ mod tests {
             auth.actor(),
             &Actor::ServiceUser {
                 service_name: "dns".into()
+            }
+        );
+        // A built-in name that merely contains "svc" is still built-in.
+        let auth = auth_valence_for_label(&system, Some("service:svc-backup"));
+        assert_eq!(
+            auth.actor(),
+            &Actor::ServiceUser {
+                service_name: "svc-backup".into()
             }
         );
     }
