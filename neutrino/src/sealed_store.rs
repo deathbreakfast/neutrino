@@ -530,7 +530,7 @@ impl SecretStore for ValenceSealedStore {
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?;
 
-        NeutrinoSecret::get(sid, self.valence.as_ref(), valence::use_!(r"When an app or operator **adds a secret to the Neutrino vault**, we store its **name, where it applies, what kind it is, and which version is current**—not the secret itself—so people and services that are allowed can find and manage it later."))
+        let update = NeutrinoSecret::get(sid, self.valence.as_ref(), valence::use_!(r"When an app or operator **adds a secret to the Neutrino vault**, we store its **name, where it applies, what kind it is, and which version is current**—not the secret itself—so people and services that are allowed can find and manage it later."))
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?
             .ok_or_else(|| NeutrinoError::service("rotate", anyhow::anyhow!("secret vanished")))?
@@ -538,13 +538,17 @@ impl SecretStore for ValenceSealedStore {
             .set_current_version(new_ver)
             .map_err(|e| NeutrinoError::service("rotate", e))?
             .set_updated_at(now)
-            .map_err(|e| NeutrinoError::service("rotate", e))?
-            // Re-assert owner as a JSON object so SQLite update paths that
-            // string-wrap Json scalars stay stable.
-            .set_owner_subject_json(normalize_owner_subject_value(
-                secret.owner_subject_json().clone(),
-            ))
-            .map_err(|e| NeutrinoError::service("rotate", e))?
+            .map_err(|e| NeutrinoError::service("rotate", e))?;
+        // Re-assert owner as a JSON object so SQLite update paths that
+        // string-wrap Json scalars stay stable. The field has its own read
+        // policy; when this handle can't read it the update leaves it as stored.
+        let update = match secret.owner_subject_json() {
+            Some(owner) => update
+                .set_owner_subject_json(normalize_owner_subject_value(owner.clone()))
+                .map_err(|e| NeutrinoError::service("rotate", e))?,
+            None => update,
+        };
+        update
             .commit()
             .await
             .map_err(|e| NeutrinoError::service("valence", e))?;
