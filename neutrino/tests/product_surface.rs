@@ -1,7 +1,8 @@
 //! Product surface contracts for neutrino-app (composer repo).
 //!
 //! Lives under the **neutrino domain** crate so CI can gate route/testid/auth/
-//! When `L4-composers/neutrino-uf-app` is absent (standalone uf-dev CI), each
+//! Set `NEUTRINO_APP_SRC` to the composer's `neutrino-app/src` directory to
+//! run them. When it is unset or missing (standalone uf-dev CI), each
 //! test returns early — domain contract suites remain the merge gate.
 
 use std::fs;
@@ -12,9 +13,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn composer_app_src() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .join("L4-composers/neutrino-uf-app/neutrino-app/src");
+    let path = PathBuf::from(std::env::var_os("NEUTRINO_APP_SRC")?);
     path.is_dir().then_some(path)
 }
 
