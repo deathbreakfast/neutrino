@@ -7,6 +7,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 mod gauge_test_wiring;
+mod tolerant_mem;
 
 use std::sync::Arc;
 
@@ -45,7 +46,7 @@ struct SplitValence {
 /// One backend per logical: `default` (lepton), `gauge`, and `neutrino`.
 async fn split_system_valence() -> SplitValence {
     prepare_test_env();
-    let default: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
+    let default: Arc<dyn DatabaseBackend> = Arc::new(tolerant_mem::TolerantMemBackend::new());
     let gauge: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
     let neutrino: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
     let mut router = DatabaseRouter::new();
@@ -593,4 +594,123 @@ async fn put_or_reuse_allowed_for_owner_happy_path() {
         .expect("owner rotate via put_or_reuse");
     assert_eq!(first.id.0, second.id.0);
     assert!(second.version > first.version);
+}
+
+/// A registered service user: a `service_user_account` row owned by `owner`.
+async fn register_service_user(
+    system: &Valence,
+    owner: &str,
+) -> lepton_identity::service_users::ServiceUserId {
+    use lepton::generated::{
+        ServiceUserAccount, ServiceUserAccountOwnerKind, ServiceUserAccountStatus,
+    };
+    use lepton_identity::service_users::ServiceUserId;
+    use valence::RecordId;
+
+    static GATE: std::sync::Once = std::sync::Once::new();
+    GATE.call_once(|| {
+        gauge::service_users::install_gauge_service_user_gate().expect("service user gate");
+    });
+    let _stats = gauge::service_users::seed_service_user_permissions(system)
+        .await
+        .expect("seed service user permissions");
+    seed_user(owner, &format!("{owner}@example.test"), system).await;
+    gauge_test_wiring::add_user_to_group(
+        owner,
+        gauge::service_users::SERVICE_USER_CREATORS_GROUP_ID,
+        system,
+    )
+    .await;
+    let owner_v = system.with_actor(Actor::User {
+        user_id: owner.to_string(),
+    });
+    let id = ServiceUserId::new_v4();
+    let owner_ref = RecordId::new("user", owner);
+    let now = chrono::Utc::now();
+    let row = ServiceUserAccount::new(
+        Some(owner_ref.clone()),
+        ServiceUserAccountOwnerKind::User,
+        Some(owner_ref),
+        "vault-bot".to_string(),
+        "vaultbot".to_string(),
+        "Fixture service user".to_string(),
+        None,
+        ServiceUserAccountStatus::Active,
+        None,
+        now,
+        now,
+    )
+    .expect("service user row");
+    ServiceUserAccount::upsert(id.as_str(), row, &owner_v, valence::use_!(r"**Test:** Fixture **service user** save for `tests` so the suite can arrange and assert vault access. CI and developers running the suite only."))
+        .await
+        .expect("create service user");
+    id
+}
+
+/// A secret created by a human owner, with the Reveal action granted to the service user.
+async fn secret_revealable_by_service_user(
+    system: &Valence,
+    id: &lepton_identity::service_users::ServiceUserId,
+) -> String {
+    let secret_id = create_as_creator(system, "secret_owner", "svc_target").await;
+    let perm_id = permission_record_id(
+        ResourceKind::NeutrinoSecret,
+        &secret_id,
+        ResourceAction::Reveal,
+    );
+    let permission = gauge::generated::Permission::get(&perm_id, system, valence::use_!(r"**Test:** Fixture **Permission** load for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."))
+        .await
+        .expect("get permission")
+        .expect("permission exists after bundle ensure");
+    let principal = gauge::generated::PermissionServiceUserPrincipal::upsert(
+        &format!("svc:{}", id.as_str()),
+        gauge::generated::PermissionServiceUserPrincipal::new(
+            valence::RecordId::new("service_user_account", id.as_str()),
+            id.as_str().to_string(),
+        )
+        .expect("principal row"),
+        system,
+        valence::use_!(r"**Test:** Fixture **Permission Service User Principal** save for `tests` so the suite can arrange and assert persistence behavior. CI and developers running the suite only."),
+    )
+    .await
+    .expect("service user principal");
+    permission
+        .relate_to_allowed_principal_record(principal.id().expect("principal id"), system, valence::use_!(r"**Test:** When Gauge **grants a permission to a principal**, we **write the allowed-principal edge** so later checks know who may act. Operators and tests see that membership on the permission."))
+        .await
+        .expect("grant reveal");
+    secret_id
+}
+
+#[tokio::test]
+async fn forged_service_user_label_denied_sad() {
+    let system = system_valence().await;
+    let id = register_service_user(&system, "owner_forge").await;
+    let secret_id = secret_revealable_by_service_user(&system, &id).await;
+    let label = format!("service:svc:{}", id.as_str());
+    // A System or User handle carrying the service user's label is a forgery.
+    let bases = [
+        system.clone(),
+        system.with_actor(Actor::User {
+            user_id: "owner_forge".into(),
+        }),
+    ];
+    for base in bases {
+        let store = store_from_valence_for_request(base, label.clone());
+        let err = reveal_vault_secret(&store, secret_id.clone())
+            .await
+            .expect_err("forged label must not reveal");
+        assert!(matches!(err, NeutrinoError::AccessDenied { .. }), "{err:?}");
+    }
+}
+
+#[tokio::test]
+async fn service_user_allowed_through_grant_happy() {
+    let system = system_valence().await;
+    let id = register_service_user(&system, "owner_ok").await;
+    let secret_id = secret_revealable_by_service_user(&system, &id).await;
+    let label = format!("service:svc:{}", id.as_str());
+    let store = store_from_valence_for_request(system.with_actor(id.actor()), label);
+    reveal_vault_secret(&store, secret_id)
+        .await
+        .expect("the registered service user reveals what it was granted");
 }

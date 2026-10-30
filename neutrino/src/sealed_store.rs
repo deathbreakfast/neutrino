@@ -542,7 +542,10 @@ impl SecretStore for ValenceSealedStore {
             // Re-assert owner as a JSON object so SQLite update paths that
             // string-wrap Json scalars stay stable.
             .set_owner_subject_json(normalize_owner_subject_value(
-                secret.owner_subject_json().clone(),
+                secret
+                    .owner_subject_json()
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
             ))
             .map_err(|e| NeutrinoError::service("rotate", e))?
             .commit()

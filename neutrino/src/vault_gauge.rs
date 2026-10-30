@@ -10,6 +10,7 @@ use gauge::resource_permissions::{
     KindDefaultGroups, ResourceAction, ResourceKindDescriptor, ResourcePermissionError,
     ResourcePermissionPolicy, ResourcePermissionSpec, StaticPermissionGate, UmbrellaPolicy,
 };
+use lepton_identity::service_users::{is_managed_service_name, ServiceUserId};
 use valence::{Actor, Model, Valence};
 
 use crate::canonical_secret_id::canonical_secret_id;
@@ -103,18 +104,6 @@ pub async fn assert_neutrino_catalog_seeded(v: &Valence) -> NeutrinoResult<()> {
     }
 }
 
-/// Service-name prefixes of Lepton registered service users: `svc:<uuid>`, and the
-/// retired `bot:<uuid>`. Matches `lepton_identity::service_users::is_managed_service_name`.
-const MANAGED_SERVICE_PREFIXES: [&str; 2] = ["svc:", "bot:"];
-
-/// Whether a service name belongs to a registered service user rather than a
-/// built-in one.
-fn is_managed_service_name(name: &str) -> bool {
-    MANAGED_SERVICE_PREFIXES
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-}
-
 /// Bare Valence user id from an audit / owner label (`user:alice` → `alice`).
 #[must_use]
 pub fn user_id_from_actor_label(label: &str) -> Option<String> {
@@ -147,10 +136,16 @@ pub fn auth_valence_for_store(store: &ValenceSealedStore) -> Valence {
 /// label, returns Anonymous so Gauge checks fail closed. When `request_actor` is
 /// absent and `base` is System, preserves System (control-plane from-start lane).
 ///
-/// A `service:svc:…` label, or the retired `service:bot:…`, always yields
-/// Anonymous. Registered service users hold Gauge grants, so one must reach the
-/// vault as its own Valence actor, never by a label string anyone can write.
+/// A `service:svc:…` label, or the retired `service:bot:…`, yields Anonymous
+/// unless `base` already acts as that same registered service user. Registered
+/// service users hold Gauge grants, so one must reach the vault as its own
+/// Valence actor (authenticated by the host), never by a label string anyone can
+/// write; the label then only attributes the call. Every downgrade is logged.
 /// Built-in names such as `service:dns` still map to `Actor::ServiceUser`.
+///
+/// A `user:<id>` label is trusted as written: the vault cannot tell it from the
+/// session's own. The host must build it from the authenticated session, never
+/// from request input.
 #[must_use]
 pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Valence {
     if let Some(label) = request_actor.filter(|s| !s.trim().is_empty()) {
@@ -173,6 +168,14 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
         if let Some(svc) = label.strip_prefix("service:") {
             let name = svc.trim();
             if is_managed_service_name(name) {
+                if acts_as_registered_service_user(base, name) {
+                    return base.clone();
+                }
+                log::warn!(
+                    target: "neutrino.vault.label_downgrade",
+                    "label={label:?} base_actor={:?} outcome=anonymous reason=managed_service_label_without_matching_actor",
+                    base.actor()
+                );
                 return base.with_actor(Actor::Anonymous);
             }
             if !name.is_empty() {
@@ -186,6 +189,16 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
         }
     }
     base.clone()
+}
+
+/// Whether `base` already acts as the registered service user named `name`.
+fn acts_as_registered_service_user(base: &Valence, name: &str) -> bool {
+    ServiceUserId::from_actor(base.actor()).is_some_and(|id| {
+        id.actor()
+            == Actor::ServiceUser {
+                service_name: name.to_string(),
+            }
+    })
 }
 
 /// Authorization Valence derived from an actor label (e.g. `user:alice`).
@@ -541,5 +554,22 @@ mod tests {
                 service_name: "svc-backup".into()
             }
         );
+    }
+
+    #[test]
+    fn auth_valence_for_label_keeps_matching_service_user_happy() {
+        let id = lepton_identity::service_users::ServiceUserId::new_v4();
+        let base = system_valence().with_actor(id.actor());
+        let auth = auth_valence_for_label(&base, Some(&format!("service:svc:{}", id.as_str())));
+        assert_eq!(auth.actor(), &id.actor());
+    }
+
+    #[test]
+    fn auth_valence_for_label_refuses_other_service_user_sad() {
+        use lepton_identity::service_users::ServiceUserId;
+        let (a, b) = (ServiceUserId::new_v4(), ServiceUserId::new_v4());
+        let base = system_valence().with_actor(a.actor());
+        let auth = auth_valence_for_label(&base, Some(&format!("service:svc:{}", b.as_str())));
+        assert!(auth.actor().is_anonymous(), "{:?}", auth.actor());
     }
 }
