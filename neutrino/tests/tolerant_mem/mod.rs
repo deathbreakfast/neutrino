@@ -1,6 +1,7 @@
 //! In-memory backend that treats unique-index DDL as success, so Lepton's
 //! `service_user_account` table can be created in tests.
 
+// Shared test module: not every test binary uses every helper.
 #![allow(dead_code)]
 
 use async_trait::async_trait;
