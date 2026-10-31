@@ -51,6 +51,20 @@ permission gate and drive ORM access under that actor (no mid-request
 `store_from_valence_for_request`. Product-surface tests forbid System elevation
 in the live vault wrappers.
 
+### Service users and actor labels
+
+A registered service user reaches the vault only as its own Valence actor,
+authenticated by the host. The store's request-actor label (`service:svc:<id>`)
+attributes the call in audit rows; it never grants anything. When the base
+handle is not already acting as that same service user, the vault treats a
+`svc:` or retired `bot:` label as Anonymous, so Gauge denies it, and logs the
+downgrade (`neutrino.vault.label_downgrade`). Built-in names such as
+`service:dns` are unaffected.
+
+A `user:<id>` label is different: the vault trusts it as written and cannot
+tell it from the session's own. The host must build the label from the
+authenticated session and never from request input.
+
 ### Action verification (Tier A)
 
 `reveal_vault_secret`, `rotate_vault_secret`, `delete_vault_secret`, and

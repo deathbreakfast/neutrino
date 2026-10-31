@@ -6,11 +6,6 @@ yanked = "warn"
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via leptos (either_of)" },
     { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via leptos_macro" },
-    # aws-smithy-http-client → hyper 0.14 / rustls 0.21 until AWS SDK leaves those lines
-    { id = "RUSTSEC-2026-0258", reason = "h2 0.3 via aws-smithy-http-client / hyper 0.14" },
-    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101 via rustls 0.21 (AWS SDK)" },
-    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101 via rustls 0.21 (AWS SDK)" },
-    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101 via rustls 0.21 (AWS SDK)" },
 ]
 
 [licenses]

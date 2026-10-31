@@ -10,6 +10,7 @@ use gauge::resource_permissions::{
     KindDefaultGroups, ResourceAction, ResourceKindDescriptor, ResourcePermissionError,
     ResourcePermissionPolicy, ResourcePermissionSpec, StaticPermissionGate, UmbrellaPolicy,
 };
+use lepton_identity::service_users::{is_managed_service_name, ServiceUserId};
 use valence::{Actor, Model, Valence};
 
 use crate::canonical_secret_id::canonical_secret_id;
@@ -134,6 +135,17 @@ pub fn auth_valence_for_store(store: &ValenceSealedStore) -> Valence {
 /// When `base` is System and `request_actor` is **present but not** a User/ServiceUser
 /// label, returns Anonymous so Gauge checks fail closed. When `request_actor` is
 /// absent and `base` is System, preserves System (control-plane from-start lane).
+///
+/// A `service:svc:…` label, or the retired `service:bot:…`, yields Anonymous
+/// unless `base` already acts as that same registered service user. Registered
+/// service users hold Gauge grants, so one must reach the vault as its own
+/// Valence actor (authenticated by the host), never by a label string anyone can
+/// write; the label then only attributes the call. Every downgrade is logged.
+/// Built-in names such as `service:dns` still map to `Actor::ServiceUser`.
+///
+/// A `user:<id>` label is trusted as written: the vault cannot tell it from the
+/// session's own. The host must build it from the authenticated session, never
+/// from request input.
 #[must_use]
 pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Valence {
     if let Some(label) = request_actor.filter(|s| !s.trim().is_empty()) {
@@ -155,6 +167,17 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
         }
         if let Some(svc) = label.strip_prefix("service:") {
             let name = svc.trim();
+            if is_managed_service_name(name) {
+                if acts_as_registered_service_user(base, name) {
+                    return base.clone();
+                }
+                log::warn!(
+                    target: "neutrino.vault.label_downgrade",
+                    "label={label:?} base_actor={:?} outcome=anonymous reason=managed_service_label_without_matching_actor",
+                    base.actor()
+                );
+                return base.with_actor(Actor::Anonymous);
+            }
             if !name.is_empty() {
                 return base.with_actor(Actor::ServiceUser {
                     service_name: name.to_string(),
@@ -166,6 +189,16 @@ pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Va
         }
     }
     base.clone()
+}
+
+/// Whether `base` already acts as the registered service user named `name`.
+fn acts_as_registered_service_user(base: &Valence, name: &str) -> bool {
+    ServiceUserId::from_actor(base.actor()).is_some_and(|id| {
+        id.actor()
+            == Actor::ServiceUser {
+                service_name: name.to_string(),
+            }
+    })
 }
 
 /// Authorization Valence derived from an actor label (e.g. `user:alice`).
@@ -465,5 +498,78 @@ mod tests {
         assert!(auth2.actor().is_anonymous());
         let auth3 = auth_valence_for_label(&system, Some("user:alice"));
         assert_eq!(auth3.actor().user_id(), Some("alice"));
+    }
+
+    fn system_valence() -> valence::Valence {
+        use std::sync::Arc;
+        use valence::{DatabaseBackend, Valence, MEM_ENGINE_ID};
+
+        let backend: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
+        Valence::builder()
+            .add_backend(MEM_ENGINE_ID, backend)
+            .with_actor(Actor::System {
+                operation: "test".into(),
+            })
+            .build()
+            .expect("valence")
+    }
+
+    #[test]
+    fn auth_valence_for_label_refuses_managed_labels_sad() {
+        let system = system_valence();
+        let user = system.with_actor(Actor::User {
+            user_id: "alice".into(),
+        });
+        for base in [&system, &user] {
+            for label in [
+                "service:svc:7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "service: svc:7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "service:svc:",
+                // The retired prefix stays refused.
+                "service:bot:7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "service: bot:7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "service:bot:",
+            ] {
+                let auth = auth_valence_for_label(base, Some(label));
+                assert!(auth.actor().is_anonymous(), "{label}: {:?}", auth.actor());
+            }
+        }
+    }
+
+    #[test]
+    fn auth_valence_for_label_keeps_infra_service_label_happy() {
+        let system = system_valence();
+        let auth = auth_valence_for_label(&system, Some("service:dns"));
+        assert_eq!(
+            auth.actor(),
+            &Actor::ServiceUser {
+                service_name: "dns".into()
+            }
+        );
+        // A built-in name that merely contains "svc" is still built-in.
+        let auth = auth_valence_for_label(&system, Some("service:svc-backup"));
+        assert_eq!(
+            auth.actor(),
+            &Actor::ServiceUser {
+                service_name: "svc-backup".into()
+            }
+        );
+    }
+
+    #[test]
+    fn auth_valence_for_label_keeps_matching_service_user_happy() {
+        let id = lepton_identity::service_users::ServiceUserId::new_v4();
+        let base = system_valence().with_actor(id.actor());
+        let auth = auth_valence_for_label(&base, Some(&format!("service:svc:{}", id.as_str())));
+        assert_eq!(auth.actor(), &id.actor());
+    }
+
+    #[test]
+    fn auth_valence_for_label_refuses_other_service_user_sad() {
+        use lepton_identity::service_users::ServiceUserId;
+        let (a, b) = (ServiceUserId::new_v4(), ServiceUserId::new_v4());
+        let base = system_valence().with_actor(a.actor());
+        let auth = auth_valence_for_label(&base, Some(&format!("service:svc:{}", b.as_str())));
+        assert!(auth.actor().is_anonymous(), "{:?}", auth.actor());
     }
 }
