@@ -275,6 +275,15 @@ pub fn verify_bundle(bundle: &TransferBundle) -> NeutrinoResult<()> {
     }
     let mut by_secret: HashMap<&str, Vec<&TransferAuditEvent>> = HashMap::new();
     for e in &bundle.audit_events {
+        if !known.contains(e.secret_id.as_str()) {
+            return Err(NeutrinoError::validation(
+                "transfer_bundle",
+                format!(
+                    "audit event {} references unknown secret {}",
+                    e.id, e.secret_id
+                ),
+            ));
+        }
         outcome_parse(e.outcome.as_str())?;
         by_secret.entry(e.secret_id.as_str()).or_default().push(e);
     }
@@ -412,16 +421,11 @@ pub async fn purge_exported(valence: &Valence, bundle: &TransferBundle) -> Neutr
             .map_err(|e| svc("purge_exported", e))?;
     }
     for s in &bundle.secrets {
+        // `delete_now` (not queued `delete`): finalize must see the old copy gone before it drops the key.
         NeutrinoSecret::delete_now(s.id.as_str(), valence, valence::use_!(r"When an operator **finishes moving the Neutrino vault**, we delete the old host's secrets and their sealed versions so no copy stays behind."))
             .await
             .map_err(|e| svc("purge_exported", e))?;
-        if let Err(e) = delete_secret_permission_bundle(valence, s.id.as_str()).await {
-            log::warn!(
-                target: "neutrino.transfer",
-                "purge: Gauge bundle for {} not removed (may never have existed): {e}",
-                s.id
-            );
-        }
+        delete_secret_permission_bundle(valence, s.id.as_str()).await?;
     }
     clear_master_key_cache();
     Ok(())
@@ -514,6 +518,13 @@ mod tests {
         let mut dup = b.audit_events[0].clone();
         dup.id = "other".into();
         b.audit_events.push(dup);
+        assert!(verify_bundle(&b).is_err());
+    }
+
+    #[test]
+    fn audit_event_of_unknown_secret_is_rejected() {
+        let mut b = chain_bundle();
+        b.secrets.clear();
         assert!(verify_bundle(&b).is_err());
     }
 
