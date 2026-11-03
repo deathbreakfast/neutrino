@@ -103,6 +103,10 @@ name = "sealed_store_idempotent"
 required-features = ["ssr"]
 
 [[test]]
+name = "transfer_contract"
+required-features = ["ssr"]
+
+[[test]]
 name = "lease_grace_contract"
 required-features = ["ssr"]
 

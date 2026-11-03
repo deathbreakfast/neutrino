@@ -603,6 +603,8 @@ pub mod scripts;
 #[cfg(feature = "ssr")]
 pub mod sealed_store;
 #[cfg(feature = "ssr")]
+pub mod transfer;
+#[cfg(feature = "ssr")]
 pub mod vault;
 #[cfg(feature = "ssr")]
 pub(crate) mod vault_gauge;
