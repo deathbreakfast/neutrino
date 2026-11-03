@@ -93,9 +93,9 @@ Backend contracts (preferred path; no UI graph):
 
 ```bash
 cargo fmt -p neutrino -p vault-host -- --check
-cargo clippy -p neutrino --features ssr --lib --test vault_crud_contract --test sealed_store_idempotent --test vault_authz_contract --test vault_security_remediation -- -D warnings
+cargo clippy -p neutrino --features ssr --lib --test vault_crud_contract --test sealed_store_idempotent --test vault_authz_contract --test vault_security_remediation --test transfer_contract -- -D warnings
 cargo clippy -p vault-host --all-targets -- -D warnings
-cargo test -p neutrino --features ssr --lib --test vault_crud_contract --test sealed_store_idempotent --test vault_authz_contract --test vault_security_remediation
+cargo test -p neutrino --features ssr --lib --test vault_crud_contract --test sealed_store_idempotent --test vault_authz_contract --test vault_security_remediation --test transfer_contract
 cargo test -p neutrino --features rbac-tests --test vault_gauge_authz
 cargo test -p neutrino --features rbac-tests --test vault_server_rbac
 cargo test -p neutrino --features rbac-tests --test security_contract --test access_matrix_contract
@@ -159,6 +159,25 @@ product UI compile issue, not a vault contract gap:
 cargo clippy --workspace --all-targets --features ssr -- -D warnings
 cargo test --workspace --features ssr
 ```
+
+### Moving a vault between hosts
+
+`neutrino::transfer` exports the sealed rows and the audit chain as a bundle that
+carries no key. The cell imports the rows unchanged and reads the same master key
+through its own `KeySource`, so ciphertext opens without re-sealing and the chain
+verifies there. Finalize calls `purge_exported` to delete the old host's copy; the
+installer generates a fresh key per install with `generate_master_key_hex` and
+removes its own copy of that key. `transfer_contract` runs the scenario in
+process (IsolatedLab, two in-memory SQLite hosts):
+
+- Happy: a sealed token, including a rotated one, resolves on the cell and every
+  exported audit event is still present and verifies.
+- Sad: a tampered audit row is rejected and nothing is written; a different key
+  cannot open the rows; after the purge the old host has no rows and its key no
+  longer loads.
+
+Audit timestamps are stored and hashed at whole-second precision, which is all
+SQLite keeps. Chains written before that change can't be re-verified from SQLite.
 
 ## Layer 2 — E2E
 

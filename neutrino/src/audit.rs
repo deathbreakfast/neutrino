@@ -16,6 +16,16 @@ struct ChainCanonical<'a> {
     ts_rfc3339: &'a str,
 }
 
+/// Table prefix the store writes on `prev_event_hash` (the record id's display form).
+pub(crate) const AUDIT_EVENT_TABLE_PREFIX: &str = "neutrino_secret_audit_event:";
+
+/// Bare event digest a `prev_event_hash` points at, with or without the table prefix.
+pub(crate) fn prev_ref(prev_event_hash: &str) -> &str {
+    prev_event_hash
+        .strip_prefix(AUDIT_EVENT_TABLE_PREFIX)
+        .unwrap_or(prev_event_hash)
+}
+
 /// One row in a per-secret audit chain for verification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditChainLink {
@@ -85,7 +95,7 @@ pub fn verify_audit_chain(links: &[AuditChainLink]) -> NeutrinoResult<()> {
         ));
     }
     for link in links {
-        if link.prev_event_hash != prev_id {
+        if prev_ref(link.prev_event_hash.as_str()) != prev_id {
             return Err(NeutrinoError::validation(
                 "audit_chain",
                 format!(
@@ -153,6 +163,26 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
         assert!(!a.is_empty());
+    }
+
+    #[test]
+    fn verify_audit_chain_accepts_table_prefixed_prev() {
+        let ts = "2020-01-01T00:00:00Z";
+        let id1 = hash_event("genesis", "alice", "put", "s1", 1, "ok", ts);
+        let prev2 = format!("neutrino_secret_audit_event:{id1}");
+        let id2 = hash_event(prev2.as_str(), "alice", "get", "s1", 1, "ok", ts);
+        let link = |id: &str, prev: &str, action: &str| AuditChainLink {
+            event_id: id.into(),
+            prev_event_hash: prev.into(),
+            actor: "alice".into(),
+            action: action.into(),
+            secret_id: "s1".into(),
+            version: 1,
+            outcome: "ok".into(),
+            ts_rfc3339: ts.into(),
+        };
+        let links = vec![link(&id1, "genesis", "put"), link(&id2, &prev2, "get")];
+        verify_audit_chain(&links).expect("prefixed prev is the store's real form");
     }
 
     #[test]
