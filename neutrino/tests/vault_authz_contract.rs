@@ -70,7 +70,8 @@ async fn test_valence() -> Valence {
 #[tokio::test]
 async fn reveal_denied_for_non_owner_without_grant_sad() {
     let v = test_valence().await;
-    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
+    let alice_store =
+        store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let created = create_vault_secret(
         &alice_store,
         "alice_secret".into(),
@@ -82,7 +83,7 @@ async fn reveal_denied_for_non_owner_without_grant_sad() {
     .await
     .expect("create");
 
-    let bob_store = store_from_valence_for_request(v, "user:bob");
+    let bob_store = store_from_valence_for_request(v, gauge_test_wiring::user_actor("bob"));
     let err = reveal_vault_secret(&bob_store, created.id)
         .await
         .expect_err("bob must not reveal alice secret");
@@ -100,7 +101,8 @@ async fn reveal_denied_for_non_owner_without_grant_sad() {
 #[tokio::test]
 async fn owner_reveal_happy_path_outsider_denied_sad() {
     let v = test_valence().await;
-    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
+    let alice_store =
+        store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let created = create_vault_secret(
         &alice_store,
         "owner_reveal_tm12".into(),
@@ -118,7 +120,7 @@ async fn owner_reveal_happy_path_outsider_denied_sad() {
     let got = B64.decode(revealed.plaintext_b64.as_bytes()).expect("b64");
     assert_eq!(got.as_slice(), b"owner-reveal-pt");
 
-    let bob_store = store_from_valence_for_request(v, "user:bob");
+    let bob_store = store_from_valence_for_request(v, gauge_test_wiring::user_actor("bob"));
     let err = reveal_vault_secret(&bob_store, created.id)
         .await
         .expect_err("outsider must not reveal");
@@ -136,7 +138,7 @@ async fn owner_reveal_happy_path_outsider_denied_sad() {
 #[tokio::test]
 async fn list_returns_all_secrets_without_owner_filter_happy_path() {
     let v = test_valence().await;
-    let store = store_from_valence_for_request(v.clone(), "user:alice");
+    let store = store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let alice_row = create_vault_secret(
         &store,
         "a".into(),
@@ -173,7 +175,7 @@ async fn list_returns_all_secrets_without_owner_filter_happy_path() {
 #[tokio::test]
 async fn reveal_audit_attributes_request_actor_not_system_happy_path() {
     let v = test_valence().await;
-    let store = store_from_valence_for_request(v.clone(), "user:alice");
+    let store = store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let created = create_vault_secret(
         &store,
         "audit_target".into(),
@@ -214,7 +216,8 @@ async fn reveal_audit_attributes_request_actor_not_system_happy_path() {
 #[tokio::test]
 async fn delete_denied_for_non_owner_sad() {
     let v = test_valence().await;
-    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
+    let alice_store =
+        store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let created = create_vault_secret(
         &alice_store,
         "del".into(),
@@ -226,7 +229,7 @@ async fn delete_denied_for_non_owner_sad() {
     .await
     .expect("create");
 
-    let bob_store = store_from_valence_for_request(v, "user:bob");
+    let bob_store = store_from_valence_for_request(v, gauge_test_wiring::user_actor("bob"));
     let err = delete_vault_secret(&bob_store, created.id)
         .await
         .expect_err("bob delete");

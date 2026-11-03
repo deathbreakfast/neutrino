@@ -91,7 +91,7 @@
 //!
 //! ```ignore
 //! use neutrino::secret_store::{PutSecretRequest, SecretStore};
-//! use neutrino::{create_initial_neutrino_groups, ValenceSealedStore};
+//! use neutrino::{create_initial_neutrino_groups, RequestActor, ValenceSealedStore};
 //! use valence::Actor;
 //! use std::sync::Arc;
 //!
@@ -101,7 +101,7 @@
 //!     valence: Arc::new(valence.with_actor(Actor::System {
 //!         operation: "seal_smtp".into(),
 //!     })),
-//!     request_actor: Some("service:smtp-boot".into()),
+//!     request_actor: RequestActor::infra_service("smtp-boot"),
 //! };
 //!
 //! let secret_ref = store.put(PutSecretRequest {
@@ -126,10 +126,12 @@
 //! ```ignore
 //! use neutrino::{
 //!     create_vault_secret, reveal_vault_secret, store_from_valence_for_request,
-//!     NeutrinoError,
+//!     NeutrinoError, RequestActor,
 //! };
 //!
-//! let store = store_from_valence_for_request(system_orm_valence, "user:alice");
+//! // `session_valence` is the Valence the host authenticated for this request.
+//! let actor = RequestActor::from_valence(&session_valence).expect("signed-in user");
+//! let store = store_from_valence_for_request(system_orm_valence, actor);
 //! create_vault_secret(
 //!     &store,
 //!     "smtp_password".into(),
@@ -259,8 +261,8 @@
 //! `feature = "ssr"`.
 //!
 //! ```ignore
-//! use neutrino::{ValenceSealedStore, secret_store::SecretStore};
-//! let store = ValenceSealedStore { valence: system_arc, request_actor: Some("service:boot".into()) };
+//! use neutrino::{RequestActor, ValenceSealedStore, secret_store::SecretStore};
+//! let store = ValenceSealedStore { valence: system_arc, request_actor: RequestActor::infra_service("boot") };
 //! let secret_ref = store.put_or_reuse(put_req).await?;
 //! assert!(!secret_ref.id.0.is_empty());
 //! ```
@@ -278,14 +280,14 @@
 //!
 //! ```ignore
 //! use neutrino::secret_store::{PutSecretRequest, SecretStore};
-//! use neutrino::sealed_store::ValenceSealedStore;
+//! use neutrino::{sealed_store::ValenceSealedStore, RequestActor};
 //! use valence::Actor;
 //!
 //! let store = ValenceSealedStore {
 //!     valence: Arc::new(valence.with_actor(Actor::System {
 //!         operation: "seal_smtp".into(),
 //!     })),
-//!     request_actor: Some("user:alice".into()),
+//!     request_actor: RequestActor::from_valence(&session_valence),
 //! };
 //!
 //! let secret_ref = store.put(PutSecretRequest {
@@ -658,6 +660,6 @@ pub use vault::{
 #[cfg(feature = "ssr")]
 pub use vault_gauge::{
     actor_can_secret, assert_neutrino_catalog_seeded, create_initial_neutrino_groups,
-    ensure_secret_permission_bundle, CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET,
+    ensure_secret_permission_bundle, RequestActor, CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET,
     NEUTRINO_SECRET_RESOURCE,
 };

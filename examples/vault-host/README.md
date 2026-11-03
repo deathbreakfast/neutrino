@@ -28,7 +28,7 @@ Domain seal (Leptos-free; System ORM + request_actor audit):
 
 ```rust,ignore
 use neutrino::secret_store::{PutSecretRequest, SecretStore};
-use neutrino::{create_initial_neutrino_groups, ValenceSealedStore};
+use neutrino::{create_initial_neutrino_groups, RequestActor, ValenceSealedStore};
 use valence::Actor;
 use std::sync::Arc;
 
@@ -37,7 +37,7 @@ let store = ValenceSealedStore {
     valence: Arc::new(valence.with_actor(Actor::System {
         operation: "seal_smtp".into(),
     })),
-    request_actor: Some("service:smtp-boot".into()),
+    request_actor: RequestActor::infra_service("smtp-boot"),
 };
 ```
 

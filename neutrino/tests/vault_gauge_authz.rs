@@ -20,7 +20,7 @@ use neutrino::vault::{
     create_vault_secret, delete_vault_secret, list_vault_secrets, reveal_vault_secret,
     rotate_vault_secret, store_from_valence_for_request,
 };
-use neutrino::{NeutrinoError, ValenceSealedStore};
+use neutrino::{NeutrinoError, RequestActor, ValenceSealedStore};
 use valence::{
     register_backend_logical_names, router_key, Actor, DatabaseBackend, DatabaseRouter, Model,
     RegisterBackendLogicalNamesOptions, Valence, MEM_ENGINE_ID, SQLITE_ENGINE_ID,
@@ -144,7 +144,8 @@ async fn grant_secret_action(
 async fn create_as_creator(system: &Valence, creator: &str, name: &str) -> String {
     seed_user(creator, &format!("{creator}@example.test"), system).await;
     add_user_to_creators_group(creator, system).await;
-    let store = store_from_valence_for_request(system.clone(), format!("user:{creator}"));
+    let store =
+        store_from_valence_for_request(system.clone(), gauge_test_wiring::user_actor(&creator));
     let row = create_vault_secret(
         &store,
         name.into(),
@@ -172,7 +173,7 @@ async fn put_ensure_creates_gauge_bundle_happy_path() {
 
     let store = ValenceSealedStore {
         valence: Arc::new(system.clone()),
-        request_actor: Some("user:creator".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("creator")),
     };
     let row = create_vault_secret(
         &store,
@@ -285,7 +286,7 @@ async fn put_denied_without_create_neutrino_secrets_sad() {
     });
     let store = ValenceSealedStore {
         valence: Arc::new(system.clone()),
-        request_actor: Some("user:no_create".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("no_create")),
     };
     let _ = user_v;
     let err = create_vault_secret(
@@ -316,7 +317,7 @@ async fn put_or_reuse_denied_without_create_neutrino_secrets_sad() {
 
     let store = ValenceSealedStore {
         valence: Arc::new(system.clone()),
-        request_actor: Some("user:no_reuse".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("no_reuse")),
     };
     let err = store
         .put_or_reuse(PutSecretRequest {
@@ -384,7 +385,8 @@ async fn reveal_denied_without_reveal_grant_sad() {
     let owner_v = system.with_actor(Actor::User {
         user_id: "owner_u".to_string(),
     });
-    let store = store_from_valence_for_request(system.clone(), "user:owner_u");
+    let store =
+        store_from_valence_for_request(system.clone(), gauge_test_wiring::user_actor("owner_u"));
     let _ = owner_v;
     let created = create_vault_secret(
         &store,
@@ -400,7 +402,8 @@ async fn reveal_denied_without_reveal_grant_sad() {
     let stranger_v = system.with_actor(Actor::User {
         user_id: "stranger_u".to_string(),
     });
-    let stranger_store = store_from_valence_for_request(system.clone(), "user:stranger_u");
+    let stranger_store =
+        store_from_valence_for_request(system.clone(), gauge_test_wiring::user_actor("stranger_u"));
     let _ = stranger_v;
     let err = reveal_vault_secret(&stranger_store, created.id)
         .await
@@ -429,7 +432,10 @@ async fn reveal_allowed_via_gauge_grant_without_legacy_owner_happy() {
     )
     .await;
 
-    let store = store_from_valence_for_request(system.clone(), "user:grantee_reveal");
+    let store = store_from_valence_for_request(
+        system.clone(),
+        gauge_test_wiring::user_actor("grantee_reveal"),
+    );
     let revealed = reveal_vault_secret(&store, secret_id)
         .await
         .expect("Gauge Reveal grant must allow");
@@ -457,7 +463,10 @@ async fn list_browsable_all_secrets_reveal_still_gated_happy() {
         "browsable list includes foreign secrets"
     );
 
-    let store = store_from_valence_for_request(system.clone(), "user:stranger_list");
+    let store = store_from_valence_for_request(
+        system.clone(),
+        gauge_test_wiring::user_actor("stranger_list"),
+    );
     let err = reveal_vault_secret(&store, secret_id.clone())
         .await
         .expect_err("stranger reveal must deny");
@@ -474,7 +483,8 @@ async fn rotate_denied_without_edit_grant_sad() {
     seed_user("viewer_rot", "viewer_rot@example.test", &system).await;
     grant_secret_action(&system, &secret_id, ResourceAction::View, "viewer_rot").await;
 
-    let store = store_from_valence_for_request(system.clone(), "user:viewer_rot");
+    let store =
+        store_from_valence_for_request(system.clone(), gauge_test_wiring::user_actor("viewer_rot"));
     let err = rotate_vault_secret(&store, secret_id, "new-pt".into(), "user:viewer_rot")
         .await
         .expect_err("View without Edit must deny rotate");
@@ -496,7 +506,8 @@ async fn delete_denied_without_delete_grant_sad() {
     seed_user("viewer_del", "viewer_del@example.test", &system).await;
     grant_secret_action(&system, &secret_id, ResourceAction::View, "viewer_del").await;
 
-    let store = store_from_valence_for_request(system.clone(), "user:viewer_del");
+    let store =
+        store_from_valence_for_request(system.clone(), gauge_test_wiring::user_actor("viewer_del"));
     let err = delete_vault_secret(&store, secret_id.clone())
         .await
         .expect_err("View without Delete must deny delete");
@@ -526,7 +537,10 @@ async fn put_or_reuse_denied_for_non_owner_creator_sad() {
     add_user_to_creators_group("owner_reuse", &system).await;
     add_user_to_creators_group("other_creator", &system).await;
 
-    let owner_store = store_from_valence_for_request(system.clone(), "user:owner_reuse");
+    let owner_store = store_from_valence_for_request(
+        system.clone(),
+        gauge_test_wiring::user_actor("owner_reuse"),
+    );
     let created = create_vault_secret(
         &owner_store,
         "shared_name".into(),
@@ -538,7 +552,10 @@ async fn put_or_reuse_denied_for_non_owner_creator_sad() {
     .await
     .expect("owner create");
 
-    let stranger_store = store_from_valence_for_request(system.clone(), "user:other_creator");
+    let stranger_store = store_from_valence_for_request(
+        system.clone(),
+        gauge_test_wiring::user_actor("other_creator"),
+    );
     let err = stranger_store
         .put_or_reuse(PutSecretRequest {
             name: "shared_name".into(),
@@ -571,7 +588,10 @@ async fn put_or_reuse_allowed_for_owner_happy_path() {
     seed_user("reuse_owner", "reuse_owner@example.test", &system).await;
     add_user_to_creators_group("reuse_owner", &system).await;
 
-    let store = store_from_valence_for_request(system.clone(), "user:reuse_owner");
+    let store = store_from_valence_for_request(
+        system.clone(),
+        gauge_test_wiring::user_actor("reuse_owner"),
+    );
     let first = store
         .put_or_reuse(PutSecretRequest {
             name: "owned_reuse".into(),
@@ -686,8 +706,8 @@ async fn forged_service_user_label_denied_sad() {
     let system = system_valence().await;
     let id = register_service_user(&system, "owner_forge").await;
     let secret_id = secret_revealable_by_service_user(&system, &id).await;
-    let label = format!("service:svc:{}", id.as_str());
-    // A System or User handle carrying the service user's label is a forgery.
+    let actor = RequestActor::from_valence(&system.with_actor(id.actor())).expect("service actor");
+    // A System or User handle carrying the service user's actor is a forgery.
     let bases = [
         system.clone(),
         system.with_actor(Actor::User {
@@ -695,7 +715,7 @@ async fn forged_service_user_label_denied_sad() {
         }),
     ];
     for base in bases {
-        let store = store_from_valence_for_request(base, label.clone());
+        let store = store_from_valence_for_request(base, actor.clone());
         let err = reveal_vault_secret(&store, secret_id.clone())
             .await
             .expect_err("forged label must not reveal");
@@ -708,9 +728,36 @@ async fn service_user_allowed_through_grant_happy() {
     let system = system_valence().await;
     let id = register_service_user(&system, "owner_ok").await;
     let secret_id = secret_revealable_by_service_user(&system, &id).await;
-    let label = format!("service:svc:{}", id.as_str());
-    let store = store_from_valence_for_request(system.with_actor(id.actor()), label);
+    let base = system.with_actor(id.actor());
+    let actor = RequestActor::from_valence(&base).expect("service actor");
+    let store = store_from_valence_for_request(base, actor);
     reveal_vault_secret(&store, secret_id)
         .await
         .expect("the registered service user reveals what it was granted");
+}
+
+#[tokio::test]
+async fn forged_user_label_denied_sad() {
+    let system = system_valence().await;
+    let secret_id = create_as_creator(&system, "victim_owner", "victim_secret").await;
+    seed_user("attacker", "attacker@example.test", &system).await;
+    // Free text naming the victim attributes audit rows and authorizes nothing.
+    for label in ["user:victim_owner", "victim_owner"] {
+        let store =
+            store_from_valence_for_request(system.clone(), RequestActor::audit_label(label));
+        let err = reveal_vault_secret(&store, secret_id.clone())
+            .await
+            .expect_err("audit label must not reveal");
+        assert!(matches!(err, NeutrinoError::AccessDenied { .. }), "{err:?}");
+    }
+    // Another user's handle cannot carry the victim's actor.
+    let victim = gauge_test_wiring::user_actor("victim_owner");
+    let attacker_v = system.with_actor(Actor::User {
+        user_id: "attacker".into(),
+    });
+    let store = store_from_valence_for_request(attacker_v, victim);
+    let err = reveal_vault_secret(&store, secret_id)
+        .await
+        .expect_err("victim actor on attacker handle must not reveal");
+    assert!(matches!(err, NeutrinoError::AccessDenied { .. }), "{err:?}");
 }

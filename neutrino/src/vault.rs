@@ -20,7 +20,7 @@ use valence::Valence;
 use crate::error::{NeutrinoError, NeutrinoResult};
 use crate::sealed_store::{list_secrets, ListedSecret, ValenceSealedStore};
 use crate::secret_store::{PutSecretRequest, SecretId, SecretStore};
-use crate::vault_gauge::{auth_valence_for_store, ensure_actor_can_secret};
+use crate::vault_gauge::{auth_valence_for_store, ensure_actor_can_secret, RequestActor};
 use gauge::resource_permissions::ResourceAction;
 
 async fn ensure_vault_reveal(store: &ValenceSealedStore, secret_id: &str) -> NeutrinoResult<()> {
@@ -250,16 +250,17 @@ pub fn store_from_valence(valence: Valence) -> ValenceSealedStore {
     }
 }
 
-/// Build a store that uses system/ORM Valence but attributes audit rows to
-/// `request_actor`.
+/// Build a store that uses system/ORM Valence but acts and attributes audit rows as
+/// `request_actor`. Derive a user actor from the authenticated session with
+/// [`RequestActor::from_valence`].
 #[must_use]
 pub fn store_from_valence_for_request(
     valence: Valence,
-    request_actor: impl Into<String>,
+    request_actor: RequestActor,
 ) -> ValenceSealedStore {
     ValenceSealedStore {
         valence: Arc::new(valence),
-        request_actor: Some(request_actor.into()),
+        request_actor: Some(request_actor),
     }
 }
 

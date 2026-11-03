@@ -63,7 +63,8 @@ async fn wired_valence() -> Valence {
 #[tokio::test]
 async fn matrix_authenticated_user_browses_all_secrets_happy() {
     let v = wired_valence().await;
-    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
+    let alice_store =
+        store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let row = create_vault_secret(
         &alice_store,
         "m1".into(),
@@ -81,7 +82,8 @@ async fn matrix_authenticated_user_browses_all_secrets_happy() {
 #[tokio::test]
 async fn matrix_stranger_reveal_denied_sad() {
     let v = wired_valence().await;
-    let alice_store = store_from_valence_for_request(v.clone(), "user:alice");
+    let alice_store =
+        store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("alice"));
     let row = create_vault_secret(
         &alice_store,
         "m2".into(),
@@ -92,7 +94,7 @@ async fn matrix_stranger_reveal_denied_sad() {
     )
     .await
     .expect("create");
-    let bob_store = store_from_valence_for_request(v.clone(), "user:bob");
+    let bob_store = store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("bob"));
     let err = reveal_vault_secret(&bob_store, row.id)
         .await
         .expect_err("stranger reveal");
@@ -102,7 +104,7 @@ async fn matrix_stranger_reveal_denied_sad() {
 #[tokio::test]
 async fn matrix_creator_reveal_after_put_happy() {
     let v = wired_valence().await;
-    let store = store_from_valence_for_request(v, "user:alice");
+    let store = store_from_valence_for_request(v, gauge_test_wiring::user_actor("alice"));
     let row = create_vault_secret(
         &store,
         "m3".into(),

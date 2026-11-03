@@ -101,7 +101,7 @@ async fn operators_group_member_denied_without_per_secret_grant_sad() {
     gauge_test_wiring::add_user_to_creators_group("creator", &v).await;
     gauge_test_wiring::add_user_to_group("operator", "neutrino.secret.operators", &v).await;
 
-    let store = store_from_valence_for_request(v.clone(), "user:creator");
+    let store = store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("creator"));
     let row = create_vault_secret(
         &store,
         "op_test".into(),
@@ -113,7 +113,8 @@ async fn operators_group_member_denied_without_per_secret_grant_sad() {
     .await
     .expect("create");
 
-    let op_store = store_from_valence_for_request(v.clone(), "user:operator");
+    let op_store =
+        store_from_valence_for_request(v.clone(), gauge_test_wiring::user_actor("operator"));
     let err = reveal_vault_secret(&op_store, row.id)
         .await
         .expect_err("operators umbrella must not reveal without per-secret grant");
