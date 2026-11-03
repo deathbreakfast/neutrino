@@ -124,71 +124,155 @@ pub fn user_id_from_actor_label(label: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Valence handle whose actor matches the human/service label on the store (for Gauge checks).
-#[must_use]
-pub fn auth_valence_for_store(store: &ValenceSealedStore) -> Valence {
-    auth_valence_for_label(store.valence.as_ref(), store.request_actor.as_deref())
+/// Who a vault call acts for, as the store sees it.
+///
+/// There is no constructor from a string that authorizes. A user comes from a
+/// Valence the host authenticated ([`RequestActor::from_valence`]); a built-in
+/// infrastructure service is named explicitly ([`RequestActor::infra_service`]); free
+/// text can only attribute audit rows ([`RequestActor::audit_label`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestActor(RequestActorKind);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RequestActorKind {
+    User(String),
+    Service(String),
+    Audit(String),
 }
 
-/// Build an authorization Valence from a base handle and request actor label.
-///
-/// When `base` is System and `request_actor` is **present but not** a User/ServiceUser
-/// label, returns Anonymous so Gauge checks fail closed. When `request_actor` is
-/// absent and `base` is System, preserves System (control-plane from-start lane).
-///
-/// A `service:svc:…` label, or the retired `service:bot:…`, yields Anonymous
-/// unless `base` already acts as that same registered service user. Registered
-/// service users hold Gauge grants, so one must reach the vault as its own
-/// Valence actor (authenticated by the host), never by a label string anyone can
-/// write; the label then only attributes the call. Every downgrade is logged.
-/// Built-in names such as `service:dns` still map to `Actor::ServiceUser`.
-///
-/// A `user:<id>` label is trusted as written: the vault cannot tell it from the
-/// session's own. The host must build it from the authenticated session, never
-/// from request input.
-#[must_use]
-pub fn auth_valence_for_label(base: &Valence, request_actor: Option<&str>) -> Valence {
-    if let Some(label) = request_actor.filter(|s| !s.trim().is_empty()) {
-        if let Some(uid) = user_id_from_actor_label(label) {
-            let lower = uid.to_ascii_lowercase();
-            if lower == "system"
-                || lower == "anonymous"
-                || lower.starts_with("chronon.")
-                || lower == "gluon-lab-ops"
-                || lower == "gluon-system"
-                || lower == "gluon.system"
-            {
-                if base.actor().is_system() {
-                    return base.with_actor(Actor::Anonymous);
-                }
-            } else {
-                return base.with_actor(Actor::User { user_id: uid });
+impl RequestActor {
+    /// The actor a Valence already acts as.
+    ///
+    /// Returns `None` for System and Anonymous handles, for reserved control-plane
+    /// user ids, and for a service user with an empty name.
+    #[must_use]
+    pub fn from_valence(v: &Valence) -> Option<Self> {
+        match v.actor() {
+            Actor::User { user_id } => {
+                let id = user_id.trim();
+                (!id.is_empty() && !is_reserved_user_id(id))
+                    .then(|| Self(RequestActorKind::User(id.to_string())))
             }
+            Actor::ServiceUser { service_name } => {
+                let name = service_name.trim();
+                (!name.is_empty()).then(|| Self(RequestActorKind::Service(name.to_string())))
+            }
+            Actor::System { .. } | Actor::Anonymous => None,
         }
-        if let Some(svc) = label.strip_prefix("service:") {
-            let name = svc.trim();
+    }
+
+    /// A built-in infrastructure service such as `dns` or `smtp-boot`.
+    ///
+    /// Returns `None` for an empty name and for a registered service-user name
+    /// (`svc:…`, `bot:…`); those reach the vault only through
+    /// [`RequestActor::from_valence`] on their own handle.
+    #[must_use]
+    pub fn infra_service(name: &str) -> Option<Self> {
+        let name = name.trim();
+        (!name.is_empty() && !is_managed_service_name(name))
+            .then(|| Self(RequestActorKind::Service(name.to_string())))
+    }
+
+    /// Attribution text for audit rows. Never raises the Gauge actor: a System handle
+    /// carrying it is treated as Anonymous by Gauge checks. The text still names the
+    /// audit actor, the viewer key and the owner [`maintainer_actor_for_put`] records
+    /// on a put, so pass only text the host trusts.
+    #[must_use]
+    pub fn audit_label(label: impl Into<String>) -> Self {
+        Self(RequestActorKind::Audit(label.into()))
+    }
+
+    /// The `user:<id>` / `service:<name>` text stored in audit rows and viewer keys.
+    #[must_use]
+    pub fn label(&self) -> String {
+        match &self.0 {
+            RequestActorKind::User(id) => format!("user:{id}"),
+            RequestActorKind::Service(name) => format!("service:{name}"),
+            RequestActorKind::Audit(label) => label.clone(),
+        }
+    }
+}
+
+fn is_reserved_user_id(id: &str) -> bool {
+    let lower = id.to_ascii_lowercase();
+    lower == "system"
+        || lower == "anonymous"
+        || lower.starts_with("chronon.")
+        || lower == "gluon-lab-ops"
+        || lower == "gluon-system"
+        || lower == "gluon.system"
+}
+
+/// Valence handle whose actor matches the request actor on the store (for Gauge checks).
+#[must_use]
+pub fn auth_valence_for_store(store: &ValenceSealedStore) -> Valence {
+    auth_valence_for_request_actor(store.valence.as_ref(), store.request_actor.as_ref())
+}
+
+/// Build an authorization Valence from a base handle and the request actor.
+///
+/// With no request actor, `base` is used as is (a System base is the control-plane
+/// from-start lane). A request actor never raises `base` past what it already is:
+///
+/// - A user request actor yields that user when `base` is System or already acts as
+///   that user, and Anonymous otherwise.
+/// - An audit label yields Anonymous when `base` is System, so Gauge fails closed.
+/// - A service request actor naming a registered service user (`svc:…`, or the
+///   retired `bot:…`) yields `base` only when `base` already acts as that same
+///   service user, and Anonymous otherwise. Registered service users hold Gauge
+///   grants, so one must reach the vault as its own authenticated Valence actor.
+///   Built-in names such as `dns` map to `Actor::ServiceUser`.
+///
+/// Every downgrade is logged.
+#[must_use]
+pub fn auth_valence_for_request_actor(
+    base: &Valence,
+    request_actor: Option<&RequestActor>,
+) -> Valence {
+    let Some(actor) = request_actor else {
+        return base.clone();
+    };
+    match &actor.0 {
+        RequestActorKind::User(uid) => {
+            let wanted = Actor::User {
+                user_id: uid.clone(),
+            };
+            if base.actor().is_system() || base.actor() == &wanted {
+                return base.with_actor(wanted);
+            }
+            log::warn!(
+                target: "neutrino.vault.label_downgrade",
+                "label={:?} base_actor={:?} outcome=anonymous reason=user_actor_without_matching_base",
+                actor.label(),
+                base.actor()
+            );
+            base.with_actor(Actor::Anonymous)
+        }
+        RequestActorKind::Service(name) => {
             if is_managed_service_name(name) {
                 if acts_as_registered_service_user(base, name) {
                     return base.clone();
                 }
                 log::warn!(
                     target: "neutrino.vault.label_downgrade",
-                    "label={label:?} base_actor={:?} outcome=anonymous reason=managed_service_label_without_matching_actor",
+                    "label={:?} base_actor={:?} outcome=anonymous reason=managed_service_label_without_matching_actor",
+                    actor.label(),
                     base.actor()
                 );
                 return base.with_actor(Actor::Anonymous);
             }
-            if !name.is_empty() {
-                return base.with_actor(Actor::ServiceUser {
-                    service_name: name.to_string(),
-                });
+            base.with_actor(Actor::ServiceUser {
+                service_name: name.clone(),
+            })
+        }
+        RequestActorKind::Audit(_) => {
+            if base.actor().is_system() {
+                base.with_actor(Actor::Anonymous)
+            } else {
+                base.clone()
             }
         }
-        if base.actor().is_system() {
-            return base.with_actor(Actor::Anonymous);
-        }
     }
-    base.clone()
 }
 
 /// Whether `base` already acts as the registered service user named `name`.
@@ -199,13 +283,6 @@ fn acts_as_registered_service_user(base: &Valence, name: &str) -> bool {
                 service_name: name.to_string(),
             }
     })
-}
-
-/// Authorization Valence derived from an actor label (e.g. `user:alice`).
-#[must_use]
-#[allow(dead_code)] // used by hosts / tests that build auth Valence from labels
-pub fn auth_valence_for_access(base: &Valence, actor_label: &str) -> Valence {
-    auth_valence_for_label(base, Some(actor_label))
 }
 
 /// System actors and Super User always pass; otherwise checks Gauge permission name.
@@ -264,12 +341,11 @@ pub async fn ensure_can_create_secret(auth_v: &Valence) -> NeutrinoResult<()> {
 
 /// Maintainer id for Gauge ensure: request actor label, else Valence user id, else owner on put.
 pub fn maintainer_actor_for_put(store: &ValenceSealedStore, owner_actor: &str) -> String {
-    if let Some(label) = store
-        .request_actor
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        return label.to_string();
+    if let Some(actor) = store.request_actor.as_ref() {
+        let label = actor.label();
+        if !label.trim().is_empty() {
+            return label;
+        }
     }
     if let Some(uid) = store.valence.actor().user_id() {
         return format!("user:{uid}");
@@ -377,8 +453,8 @@ mod tests {
     #![allow(clippy::expect_used, clippy::unwrap_used)]
 
     use super::{
-        auth_valence_for_label, maintainer_is_gauge_user, user_id_from_actor_label,
-        CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET, NEUTRINO_SECRET_RESOURCE,
+        auth_valence_for_request_actor, maintainer_is_gauge_user, user_id_from_actor_label,
+        RequestActor, CREATE_NEUTRINO_SECRETS, NEUTRINO_SECRET, NEUTRINO_SECRET_RESOURCE,
     };
     use gauge::resource_permissions::{
         domain_id, owners_group_id, permission_name, permission_record_id, ResourceAction,
@@ -479,27 +555,6 @@ mod tests {
         assert!(!maintainer_is_gauge_user("gluon-system"));
     }
 
-    #[test]
-    fn auth_valence_for_label_fail_closed_on_system_without_user_sad() {
-        use std::sync::Arc;
-        use valence::{DatabaseBackend, Valence, MEM_ENGINE_ID};
-
-        let backend: Arc<dyn DatabaseBackend> = Arc::new(valence::InMemoryBackend::new());
-        let system = Valence::builder()
-            .add_backend(MEM_ENGINE_ID, backend)
-            .with_actor(Actor::System {
-                operation: "test".into(),
-            })
-            .build()
-            .expect("valence");
-        let auth = auth_valence_for_label(&system, None);
-        assert!(auth.actor().is_system());
-        let auth2 = auth_valence_for_label(&system, Some("system"));
-        assert!(auth2.actor().is_anonymous());
-        let auth3 = auth_valence_for_label(&system, Some("user:alice"));
-        assert_eq!(auth3.actor().user_id(), Some("alice"));
-    }
-
     fn system_valence() -> valence::Valence {
         use std::sync::Arc;
         use valence::{DatabaseBackend, Valence, MEM_ENGINE_ID};
@@ -514,62 +569,90 @@ mod tests {
             .expect("valence")
     }
 
+    fn user_valence(id: &str) -> valence::Valence {
+        system_valence().with_actor(Actor::User { user_id: id.into() })
+    }
+
     #[test]
-    fn auth_valence_for_label_refuses_managed_labels_sad() {
+    fn request_actor_has_no_user_without_a_user_valence_sad() {
+        assert!(RequestActor::from_valence(&system_valence()).is_none());
+        let anon = system_valence().with_actor(Actor::Anonymous);
+        assert!(RequestActor::from_valence(&anon).is_none());
+        for reserved in ["system", "Anonymous", "chronon.job", "gluon-system"] {
+            assert!(RequestActor::from_valence(&user_valence(reserved)).is_none());
+        }
+        assert!(RequestActor::infra_service("").is_none());
+        assert!(RequestActor::infra_service("svc:7c9e6679").is_none());
+        assert!(RequestActor::infra_service("bot:7c9e6679").is_none());
+    }
+
+    #[test]
+    fn audit_label_never_authorizes_sad() {
         let system = system_valence();
-        let user = system.with_actor(Actor::User {
-            user_id: "alice".into(),
-        });
-        for base in [&system, &user] {
-            for label in [
-                "service:svc:7c9e6679-7425-40de-944b-e07fc1f90ae7",
-                "service: svc:7c9e6679-7425-40de-944b-e07fc1f90ae7",
-                "service:svc:",
-                // The retired prefix stays refused.
-                "service:bot:7c9e6679-7425-40de-944b-e07fc1f90ae7",
-                "service: bot:7c9e6679-7425-40de-944b-e07fc1f90ae7",
-                "service:bot:",
-            ] {
-                let auth = auth_valence_for_label(base, Some(label));
-                assert!(auth.actor().is_anonymous(), "{label}: {:?}", auth.actor());
-            }
+        for label in ["user:alice", "alice", "system", "service:dns", ""] {
+            let actor = RequestActor::audit_label(label);
+            let auth = auth_valence_for_request_actor(&system, Some(&actor));
+            assert!(auth.actor().is_anonymous(), "{label}: {:?}", auth.actor());
+        }
+        let auth = auth_valence_for_request_actor(&system, None);
+        assert!(auth.actor().is_system());
+    }
+
+    #[test]
+    fn user_actor_follows_its_valence_happy() {
+        let alice = RequestActor::from_valence(&user_valence("alice")).expect("user actor");
+        assert_eq!(alice.label(), "user:alice");
+        let auth = auth_valence_for_request_actor(&system_valence(), Some(&alice));
+        assert_eq!(auth.actor().user_id(), Some("alice"));
+        let auth = auth_valence_for_request_actor(&user_valence("alice"), Some(&alice));
+        assert_eq!(auth.actor().user_id(), Some("alice"));
+    }
+
+    #[test]
+    fn user_actor_on_another_users_base_is_anonymous_sad() {
+        let alice = RequestActor::from_valence(&user_valence("alice")).expect("user actor");
+        let auth = auth_valence_for_request_actor(&user_valence("bob"), Some(&alice));
+        assert!(auth.actor().is_anonymous(), "{:?}", auth.actor());
+    }
+
+    #[test]
+    fn managed_service_actor_needs_its_own_valence_sad() {
+        use lepton_identity::service_users::ServiceUserId;
+        let (a, b) = (ServiceUserId::new_v4(), ServiceUserId::new_v4());
+        let actor = RequestActor::from_valence(&system_valence().with_actor(a.actor()))
+            .expect("service actor");
+        assert_eq!(actor.label(), format!("service:svc:{}", a.as_str()));
+        for base in [
+            system_valence(),
+            user_valence("alice"),
+            system_valence().with_actor(b.actor()),
+        ] {
+            let auth = auth_valence_for_request_actor(&base, Some(&actor));
+            assert!(auth.actor().is_anonymous(), "{:?}", auth.actor());
         }
     }
 
     #[test]
-    fn auth_valence_for_label_keeps_infra_service_label_happy() {
-        let system = system_valence();
-        let auth = auth_valence_for_label(&system, Some("service:dns"));
-        assert_eq!(
-            auth.actor(),
-            &Actor::ServiceUser {
-                service_name: "dns".into()
-            }
-        );
-        // A built-in name that merely contains "svc" is still built-in.
-        let auth = auth_valence_for_label(&system, Some("service:svc-backup"));
-        assert_eq!(
-            auth.actor(),
-            &Actor::ServiceUser {
-                service_name: "svc-backup".into()
-            }
-        );
-    }
-
-    #[test]
-    fn auth_valence_for_label_keeps_matching_service_user_happy() {
+    fn managed_service_actor_keeps_matching_valence_happy() {
         let id = lepton_identity::service_users::ServiceUserId::new_v4();
         let base = system_valence().with_actor(id.actor());
-        let auth = auth_valence_for_label(&base, Some(&format!("service:svc:{}", id.as_str())));
+        let actor = RequestActor::from_valence(&base).expect("service actor");
+        let auth = auth_valence_for_request_actor(&base, Some(&actor));
         assert_eq!(auth.actor(), &id.actor());
     }
 
     #[test]
-    fn auth_valence_for_label_refuses_other_service_user_sad() {
-        use lepton_identity::service_users::ServiceUserId;
-        let (a, b) = (ServiceUserId::new_v4(), ServiceUserId::new_v4());
-        let base = system_valence().with_actor(a.actor());
-        let auth = auth_valence_for_label(&base, Some(&format!("service:svc:{}", b.as_str())));
-        assert!(auth.actor().is_anonymous(), "{:?}", auth.actor());
+    fn infra_service_maps_to_service_user_happy() {
+        let system = system_valence();
+        for name in ["dns", "svc-backup"] {
+            let actor = RequestActor::infra_service(name).expect("infra service");
+            let auth = auth_valence_for_request_actor(&system, Some(&actor));
+            assert_eq!(
+                auth.actor(),
+                &Actor::ServiceUser {
+                    service_name: name.into()
+                }
+            );
+        }
     }
 }

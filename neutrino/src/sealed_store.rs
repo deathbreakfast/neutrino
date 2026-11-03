@@ -29,6 +29,7 @@ use crate::secret_store::{
 use crate::vault_gauge::{
     auth_valence_for_store, delete_secret_permission_bundle, ensure_actor_can_secret,
     ensure_can_create_secret, ensure_secret_permission_bundle, maintainer_actor_for_put,
+    RequestActor,
 };
 use gauge::resource_permissions::ResourceAction;
 
@@ -124,7 +125,8 @@ fn audit_actor_from_valence(valence: &Valence) -> String {
 fn audit_actor_for_store(store: &ValenceSealedStore) -> String {
     store
         .request_actor
-        .clone()
+        .as_ref()
+        .map(RequestActor::label)
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| audit_actor_from_valence(store.valence.as_ref()))
 }
@@ -132,7 +134,8 @@ fn audit_actor_for_store(store: &ValenceSealedStore) -> String {
 fn viewer_key_for_store(store: &ValenceSealedStore) -> String {
     store
         .request_actor
-        .clone()
+        .as_ref()
+        .map(RequestActor::label)
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| viewer_key_from_actor(store.valence.actor()))
 }
@@ -226,9 +229,9 @@ pub struct ValenceSealedStore {
     /// (`SYSTEM_ONLY`) succeeds and denial audits can append without mid-request
     /// elevation; human attribution uses [`Self::request_actor`].
     pub valence: Arc<Valence>,
-    /// Authenticated request actor label for audit/telemetry.
+    /// Typed request actor for audit and Gauge checks; see [`RequestActor`].
     /// When `None`, audit falls back to [`Self::valence`]'s actor.
-    pub request_actor: Option<String>,
+    pub request_actor: Option<RequestActor>,
 }
 
 #[async_trait]

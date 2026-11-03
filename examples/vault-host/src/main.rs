@@ -39,10 +39,10 @@ use chrono::Utc;
 use gauge::touch_schema_inventory;
 use http_body_util::BodyExt;
 use neutrino::bootstrap_seeder::seed_bootstrap_secrets_with;
-use neutrino::create_initial_neutrino_groups;
 use neutrino::vault::{
     create_vault_secret, reveal_vault_secret, rotate_vault_secret, store_from_valence_for_request,
 };
+use neutrino::{create_initial_neutrino_groups, RequestActor};
 use tower::ServiceExt;
 use valence::{
     register_backend_logical_names, router_key, Actor, DatabaseBackend, DatabaseRouter, Model,
@@ -185,7 +185,15 @@ async fn wire_vault_host(v: &Valence) {
 async fn bootstrap_vault() -> HostState {
     let v = test_valence().await;
     wire_vault_host(&v).await;
-    let store = store_from_valence_for_request(v, "user:alice");
+    let alice = RequestActor::from_valence(&v.with_actor(Actor::User {
+        user_id: "alice".into(),
+    }))
+    .expect("alice actor");
+    let bob = RequestActor::from_valence(&v.with_actor(Actor::User {
+        user_id: "bob".into(),
+    }))
+    .expect("bob actor");
+    let store = store_from_valence_for_request(v, alice);
 
     let seeded = seed_bootstrap_secrets_with(&store, "user:alice", Some("bootstrap-hmac-demo"))
         .await
@@ -206,7 +214,7 @@ async fn bootstrap_vault() -> HostState {
     let bob_store = store_from_valence_for_request(
         // Same backend as alice store (clone Valence from store's Arc).
         (*store.valence).clone(),
-        "user:bob",
+        bob,
     );
     let denied = reveal_vault_secret(&bob_store, created.id.clone())
         .await
