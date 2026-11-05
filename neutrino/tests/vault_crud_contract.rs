@@ -126,7 +126,7 @@ async fn list_vault_secrets_includes_created_happy_path() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     let created = create_vault_secret(
         &store,
@@ -177,7 +177,7 @@ async fn rotate_vault_secret_bumps_version_happy_path() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     let created = create_vault_secret(
         &store,
@@ -209,7 +209,7 @@ async fn delete_vault_secret_removes_from_list_happy_path() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     let created = create_vault_secret(
         &store,
@@ -243,7 +243,7 @@ async fn vault_crud_workflow_create_list_reveal_rotate_delete_happy_path() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     neutrino_vault_ping(&store).await.expect("ping");
 
@@ -426,7 +426,7 @@ async fn list_vault_secrets_none_returns_all_happy() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     let finance = create_vault_secret(
         &store,
@@ -465,7 +465,7 @@ async fn list_vault_secrets_scope_prefix_filters_happy() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     let under = create_vault_secret(
         &store,
@@ -511,7 +511,7 @@ async fn list_vault_secrets_scope_prefix_empty_sad() {
     let v = test_valence().await;
     let store = ValenceSealedStore {
         valence: Arc::new(v.clone()),
-        request_actor: Some("actor".into()),
+        request_actor: Some(gauge_test_wiring::user_actor("actor")),
     };
     let _ = create_vault_secret(
         &store,

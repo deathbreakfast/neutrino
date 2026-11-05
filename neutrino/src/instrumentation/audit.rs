@@ -1,6 +1,6 @@
 //! Append tamper-evident Valence audit events for Neutrino secret operations.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SubsecRound, Utc};
 use valence::{Model, RecordId, StringPredicate, Valence};
 
 use crate::audit::hash_event;
@@ -39,18 +39,25 @@ async fn last_audit_hash_for_secret(v: &Valence, secret_id: &str) -> NeutrinoRes
         .where_secret_id(StringPredicate::Equals(secret_id.to_string()))
         .await
         .map_err(|e| NeutrinoError::service("audit_query", e))?;
-    let mut latest: Option<(DateTime<Utc>, String)> = None;
+    // The head is the event no other event names as its predecessor. Timestamps cannot pick it:
+    // SQLite keeps whole seconds, so two events in one second tie.
+    let mut entries: Vec<(DateTime<Utc>, String)> = Vec::new();
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in rows {
-        let ts = *r.ts();
         let id = r.id().map(|rid| rid.to_string()).unwrap_or_default();
         if id.is_empty() {
             continue;
         }
-        if latest.as_ref().map(|(t, _)| ts > *t).unwrap_or(true) {
-            latest = Some((ts, id));
-        }
+        referenced.insert(crate::audit::prev_ref(r.prev_event_hash()).to_string());
+        entries.push((*r.ts(), id));
     }
-    Ok(latest
+    let mut heads: Vec<(DateTime<Utc>, String)> = entries
+        .into_iter()
+        .filter(|(_, id)| !referenced.contains(crate::audit::prev_ref(id.as_str())))
+        .collect();
+    heads.sort_by_key(|(t, _)| *t);
+    Ok(heads
+        .pop()
         .map(|(_, id)| id)
         .unwrap_or_else(|| "genesis".to_string()))
 }
@@ -72,7 +79,8 @@ async fn append_audit_row(
         ));
     }
     let prev = last_audit_hash_for_secret(valence, secret_id).await?;
-    let ts = Utc::now();
+    // Whole seconds: the stored value must equal the hashed one on every backend.
+    let ts = Utc::now().trunc_subsecs(0);
     let ev_hash = hash_event(
         prev.as_str(),
         actor,

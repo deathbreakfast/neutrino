@@ -5,7 +5,7 @@
 
 use chrono::Utc;
 use gauge::touch_schema_inventory;
-use neutrino::create_initial_neutrino_groups;
+use neutrino::{create_initial_neutrino_groups, RequestActor};
 use valence::{Model, Valence};
 
 pub async fn wire_neutrino_gauge_groups(v: &Valence) {
@@ -77,4 +77,20 @@ pub async fn seed_default_vault_users(v: &Valence) {
     for id in ["actor", "test-actor", "alice", "bob", "ops"] {
         add_user_to_creators_group(id, v).await;
     }
+}
+
+/// The request actor for `id`, derived from a Valence acting as that user.
+pub fn user_actor(id: &str) -> RequestActor {
+    use std::sync::Arc;
+    use valence::{Actor, DatabaseBackend, InMemoryBackend, MEM_ENGINE_ID};
+
+    let backend: Arc<dyn DatabaseBackend> = Arc::new(InMemoryBackend::new());
+    let v = Valence::builder()
+        .add_backend(MEM_ENGINE_ID, backend)
+        .with_actor(Actor::User {
+            user_id: id.to_string(),
+        })
+        .build()
+        .expect("valence");
+    RequestActor::from_valence(&v).expect("user actor")
 }

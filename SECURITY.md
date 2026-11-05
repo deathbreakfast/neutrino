@@ -47,23 +47,26 @@ another principal's row.
 
 Vault product server functions keep the **session Valence** after the Gauge
 permission gate and drive ORM access under that actor (no mid-request
-`unsafe_system_valence`). Request-actor audit labels come from
-`store_from_valence_for_request`. Product-surface tests forbid System elevation
+`unsafe_system_valence`). Request actors come from
+`RequestActor` and `store_from_valence_for_request`. Product-surface tests forbid System elevation
 in the live vault wrappers.
 
 ### Service users and actor labels
 
 A registered service user reaches the vault only as its own Valence actor,
-authenticated by the host. The store's request-actor label (`service:svc:<id>`)
+authenticated by the host. The store's request actor (`service:svc:<id>`)
 attributes the call in audit rows; it never grants anything. When the base
 handle is not already acting as that same service user, the vault treats a
-`svc:` or retired `bot:` label as Anonymous, so Gauge denies it, and logs the
+`svc:` or retired `bot:` service actor as Anonymous, so Gauge denies it, and logs the
 downgrade (`neutrino.vault.label_downgrade`). Built-in names such as
 `service:dns` are unaffected.
 
-A `user:<id>` label is different: the vault trusts it as written and cannot
-tell it from the session's own. The host must build the label from the
-authenticated session and never from request input.
+A user reaches the vault as a typed `RequestActor`. The only way to make one is
+`RequestActor::from_valence`, which reads the user off a Valence the host
+authenticated; there is no constructor from a `user:<id>` string. A user actor
+authorizes as that user only when the store's base handle is System or already
+that user, and is Anonymous otherwise. `RequestActor::audit_label` carries free
+text for audit rows and never authorizes.
 
 ### Action verification (Tier A)
 
